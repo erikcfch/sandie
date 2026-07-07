@@ -2,7 +2,9 @@
 //
 // Element ids must stay in sync with src/elements.ts:
 //   0=Empty 1=Stone 2=Sand 3=Water 4=Wood 5=Smoke 6=Ice 7=Lava 8=Steam 9=Fire
-//   10=Obsidian 11=Sulfuric Acid 12=Copper 13=Copper Sulfate 14=Hydrogen
+//   10=Obsidian 11=Sulfuric Acid (Dilute) 12=Copper 13=Copper Sulfate 14=Hydrogen
+//   15=Sulfuric Acid (Very Dilute) 16=Sulfuric Acid (Concentrated)
+//   17=Sulfuric Acid (Fuming) 18=Sulfur Dioxide
 //
 // Each grid cell is a Cell{elementId, enthalpy} struct. Enthalpy (not raw
 // temperature) is the stored quantity - see the "Latent heat" section below
@@ -53,6 +55,7 @@ struct SimParams {
   frame: u32,
   ambientTemp: f32,
   reactionCount: u32,
+  thresholdReactionCount: u32,
 }
 
 @group(0) @binding(0) var<uniform> params: SimParams;
@@ -61,8 +64,12 @@ struct SimParams {
 @group(0) @binding(3) var<storage, read> materials: array<vec4<f32>>; // (density, thermalConductivity, heatCapacity, unused)
 // Data-driven contact reactions built from src/reactions.ts's CONTACT_REACTIONS
 // (see reactionData()) - 2 vec4s per reaction: (reactant, catalystNeighbor,
-// product, chance) then (enthalpyDelta, unused, unused, unused).
+// product, chance) then (enthalpyDelta, minTemperature, unused, unused).
 @group(0) @binding(4) var<storage, read> reactions: array<vec4<f32>>;
+// Data-driven temperature-only (no catalyst) transitions built from
+// src/thresholdReactions.ts's THRESHOLD_REACTIONS (see thresholdReactionData())
+// - 1 vec4 per reaction: (reactant, minTemperature, product, chance).
+@group(0) @binding(5) var<storage, read> thresholdReactions: array<vec4<f32>>;
 
 const EMPTY: u32 = 0u;
 const STONE: u32 = 1u;
@@ -79,7 +86,14 @@ const ACID: u32 = 11u;
 const COPPER: u32 = 12u;
 const COPPER_SULFATE: u32 = 13u;
 const HYDROGEN: u32 = 14u;
+const ACID_VERY_DILUTE: u32 = 15u;
+const ACID_CONCENTRATED: u32 = 16u;
+const ACID_FUMING: u32 = 17u;
+const SULFUR_DIOXIDE: u32 = 18u;
 const NO_NEIGHBOR: u32 = 0xffffffffu;
+// Sentinel for "no minimum temperature gate" written by reactions.ts's
+// reactionData() - must stay in sync with its NO_MIN_TEMPERATURE export.
+const NO_MIN_TEMPERATURE: f32 = -999.0;
 
 fn density(id: u32) -> f32 {
   return materials[id].x;
@@ -94,15 +108,16 @@ fn heatCapacityOf(id: u32) -> f32 {
 }
 
 fn isPowderOrLiquid(id: u32) -> bool {
-  return id == SAND || id == WATER || id == LAVA || id == ACID || id == COPPER_SULFATE;
+  return id == SAND || id == WATER || id == LAVA || id == ACID || id == COPPER_SULFATE
+      || id == ACID_VERY_DILUTE || id == ACID_CONCENTRATED || id == ACID_FUMING;
 }
 
 fn isGas(id: u32) -> bool {
-  return id == SMOKE || id == STEAM || id == FIRE || id == HYDROGEN;
+  return id == SMOKE || id == STEAM || id == FIRE || id == HYDROGEN || id == SULFUR_DIOXIDE;
 }
 
 fn isLiquid(id: u32) -> bool {
-  return id == WATER || id == LAVA || id == ACID;
+  return id == WATER || id == LAVA || id == ACID || id == ACID_VERY_DILUTE || id == ACID_CONCENTRATED || id == ACID_FUMING;
 }
 
 fn cellIndex(x: i32, y: i32, width: i32) -> u32 {
@@ -480,15 +495,47 @@ fn heat(@builtin(global_invocation_id) gid: vec3<u32>) {
       if (!matched) {
         continue;
       }
+      let row1 = reactions[i * 2u + 1u];
+      let minTemperature = row1.y;
+      if (minTemperature != NO_MIN_TEMPERATURE && result.temperature < minTemperature) {
+        continue;
+      }
       // Seed with the reaction index too, so multiple reactions don't share
       // (and correlate with) the same roll on a given cell/frame.
       let roll = f32(hash(u32(x), u32(y), params.frame + i * 7919u) & 0xffffu) / 65536.0;
       if (roll < row0.w) {
         let product = u32(row0.z);
-        let enthalpyDelta = reactions[i * 2u + 1u].x;
         result.elementId = product;
-        newEnthalpy = enthalpyForNewElement(result.temperature, product) + enthalpyDelta;
+        newEnthalpy = enthalpyForNewElement(result.temperature, product) + row1.x;
         break;
+      }
+    }
+
+    // Data-driven threshold reactions (src/thresholdReactions.ts): a
+    // temperature-only, one-way substance change with no catalyst neighbor
+    // needed (e.g. heat boiling water out of dilute acid to concentrate it)
+    // - the same shape as Wood's ignition below, but shared across several
+    // cases instead of duplicated as bespoke branches. Only tried if no
+    // contact reaction already fired this tick (result.elementId is still
+    // unchanged), so a cell can't be transformed twice in one tick.
+    if (result.elementId == here.elementId) {
+      for (var k = 0u; k < params.thresholdReactionCount; k = k + 1u) {
+        let trow = thresholdReactions[k];
+        if (here.elementId != u32(trow.x)) {
+          continue;
+        }
+        if (result.temperature < trow.y) {
+          continue;
+        }
+        // Distinct seed multiplier from the contact-reaction loop above, so
+        // the two engines' rolls don't correlate.
+        let roll = f32(hash(u32(x), u32(y), params.frame + k * 104729u) & 0xffffu) / 65536.0;
+        if (roll < trow.w) {
+          let product = u32(trow.z);
+          result.elementId = product;
+          newEnthalpy = enthalpyForNewElement(result.temperature, product);
+          break;
+        }
       }
     }
   }

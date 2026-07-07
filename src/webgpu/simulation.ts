@@ -5,6 +5,7 @@ import paintShaderCode from '../shaders/paint.wgsl?raw';
 import renderShaderCode from '../shaders/render.wgsl?raw';
 import simulateShaderCode from '../shaders/simulate.wgsl?raw';
 import { enthalpyForTemperature } from '../thermal';
+import { THRESHOLD_REACTIONS, thresholdReactionData } from '../thresholdReactions';
 
 const CELL_COUNT = GRID_WIDTH * GRID_HEIGHT;
 const CELL_BYTES = 8; // Cell{elementId: u32, enthalpy: f32}
@@ -43,6 +44,7 @@ export class Simulation {
   private readonly paletteBuffer: GPUBuffer;
   private readonly materialsBuffer: GPUBuffer;
   private readonly reactionsBuffer: GPUBuffer;
+  private readonly thresholdReactionsBuffer: GPUBuffer;
   private readonly simParamsBuffer: GPUBuffer;
   private readonly paintParamsBuffer: GPUBuffer;
   private readonly renderParamsBuffer: GPUBuffer;
@@ -96,9 +98,17 @@ export class Simulation {
     });
     device.queue.writeBuffer(this.reactionsBuffer, 0, reactions);
 
+    const thresholdReactions = thresholdReactionData();
+    this.thresholdReactionsBuffer = device.createBuffer({
+      label: 'threshold-reactions',
+      size: thresholdReactions.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(this.thresholdReactionsBuffer, 0, thresholdReactions);
+
     this.simParamsBuffer = device.createBuffer({
       label: 'sim-params',
-      size: 20,
+      size: 24,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     this.paintParamsBuffer = device.createBuffer({
@@ -124,6 +134,7 @@ export class Simulation {
         { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
         { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
         { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+        { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
       ],
     });
     const paintBindGroupLayout = device.createBindGroupLayout({
@@ -174,6 +185,7 @@ export class Simulation {
         { binding: 2, resource: { buffer: this.gridBufferB } },
         { binding: 3, resource: { buffer: this.materialsBuffer } },
         { binding: 4, resource: { buffer: this.reactionsBuffer } },
+        { binding: 5, resource: { buffer: this.thresholdReactionsBuffer } },
       ],
     });
     this.heatBindGroup = device.createBindGroup({
@@ -184,6 +196,7 @@ export class Simulation {
         { binding: 2, resource: { buffer: this.gridBufferA } },
         { binding: 3, resource: { buffer: this.materialsBuffer } },
         { binding: 4, resource: { buffer: this.reactionsBuffer } },
+        { binding: 5, resource: { buffer: this.thresholdReactionsBuffer } },
       ],
     });
     this.paintBindGroup = device.createBindGroup({
@@ -268,13 +281,14 @@ export class Simulation {
     }
 
     if (simulate) {
-      const simParams = new ArrayBuffer(20);
+      const simParams = new ArrayBuffer(24);
       const simView = new DataView(simParams);
       simView.setUint32(0, GRID_WIDTH, true);
       simView.setUint32(4, GRID_HEIGHT, true);
       simView.setUint32(8, this.frame, true);
       simView.setFloat32(12, ambientTemp, true);
       simView.setUint32(16, CONTACT_REACTIONS.length, true);
+      simView.setUint32(20, THRESHOLD_REACTIONS.length, true);
       this.device.queue.writeBuffer(this.simParamsBuffer, 0, simParams);
 
       const pass = encoder.beginComputePass();
