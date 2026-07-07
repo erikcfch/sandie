@@ -1,5 +1,6 @@
 import { GRID_HEIGHT, GRID_WIDTH, WORKGROUP_SIZE } from '../config';
 import { AMBIENT_TEMP as ELEMENT_AMBIENT_TEMP, colorPalette, ELEMENTS, getElement, materialProperties } from '../elements';
+import { CONTACT_REACTIONS, reactionData } from '../reactions';
 import paintShaderCode from '../shaders/paint.wgsl?raw';
 import renderShaderCode from '../shaders/render.wgsl?raw';
 import simulateShaderCode from '../shaders/simulate.wgsl?raw';
@@ -41,6 +42,7 @@ export class Simulation {
   private readonly gridBufferB: GPUBuffer;
   private readonly paletteBuffer: GPUBuffer;
   private readonly materialsBuffer: GPUBuffer;
+  private readonly reactionsBuffer: GPUBuffer;
   private readonly simParamsBuffer: GPUBuffer;
   private readonly paintParamsBuffer: GPUBuffer;
   private readonly renderParamsBuffer: GPUBuffer;
@@ -86,9 +88,16 @@ export class Simulation {
     });
     device.queue.writeBuffer(this.materialsBuffer, 0, materialProperties());
 
+    this.reactionsBuffer = device.createBuffer({
+      label: 'reactions',
+      size: CONTACT_REACTIONS.length * 8 * 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(this.reactionsBuffer, 0, reactionData());
+
     this.simParamsBuffer = device.createBuffer({
       label: 'sim-params',
-      size: 16,
+      size: 20,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     this.paintParamsBuffer = device.createBuffer({
@@ -113,6 +122,7 @@ export class Simulation {
         { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
         { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
         { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
       ],
     });
     const paintBindGroupLayout = device.createBindGroupLayout({
@@ -162,6 +172,7 @@ export class Simulation {
         { binding: 1, resource: { buffer: this.gridBufferA } },
         { binding: 2, resource: { buffer: this.gridBufferB } },
         { binding: 3, resource: { buffer: this.materialsBuffer } },
+        { binding: 4, resource: { buffer: this.reactionsBuffer } },
       ],
     });
     this.heatBindGroup = device.createBindGroup({
@@ -171,6 +182,7 @@ export class Simulation {
         { binding: 1, resource: { buffer: this.gridBufferB } },
         { binding: 2, resource: { buffer: this.gridBufferA } },
         { binding: 3, resource: { buffer: this.materialsBuffer } },
+        { binding: 4, resource: { buffer: this.reactionsBuffer } },
       ],
     });
     this.paintBindGroup = device.createBindGroup({
@@ -255,12 +267,13 @@ export class Simulation {
     }
 
     if (simulate) {
-      const simParams = new ArrayBuffer(16);
+      const simParams = new ArrayBuffer(20);
       const simView = new DataView(simParams);
       simView.setUint32(0, GRID_WIDTH, true);
       simView.setUint32(4, GRID_HEIGHT, true);
       simView.setUint32(8, this.frame, true);
       simView.setFloat32(12, ambientTemp, true);
+      simView.setUint32(16, CONTACT_REACTIONS.length, true);
       this.device.queue.writeBuffer(this.simParamsBuffer, 0, simParams);
 
       const pass = encoder.beginComputePass();

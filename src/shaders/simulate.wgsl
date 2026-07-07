@@ -2,6 +2,7 @@
 //
 // Element ids must stay in sync with src/elements.ts:
 //   0=Empty 1=Stone 2=Sand 3=Water 4=Wood 5=Smoke 6=Ice 7=Lava 8=Steam 9=Fire
+//   10=Obsidian 11=Sulfuric Acid 12=Copper 13=Copper Sulfate 14=Hydrogen
 //
 // Each grid cell is a Cell{elementId, enthalpy} struct. Enthalpy (not raw
 // temperature) is the stored quantity - see the "Latent heat" section below
@@ -51,12 +52,17 @@ struct SimParams {
   height: u32,
   frame: u32,
   ambientTemp: f32,
+  reactionCount: u32,
 }
 
 @group(0) @binding(0) var<uniform> params: SimParams;
 @group(0) @binding(1) var<storage, read> readBuf: array<Cell>;
 @group(0) @binding(2) var<storage, read_write> writeBuf: array<Cell>;
 @group(0) @binding(3) var<storage, read> materials: array<vec4<f32>>; // (density, thermalConductivity, heatCapacity, unused)
+// Data-driven contact reactions built from src/reactions.ts's CONTACT_REACTIONS
+// (see reactionData()) - 2 vec4s per reaction: (reactant, catalystNeighbor,
+// product, chance) then (enthalpyDelta, unused, unused, unused).
+@group(0) @binding(4) var<storage, read> reactions: array<vec4<f32>>;
 
 const EMPTY: u32 = 0u;
 const STONE: u32 = 1u;
@@ -69,6 +75,11 @@ const LAVA: u32 = 7u;
 const STEAM: u32 = 8u;
 const FIRE: u32 = 9u;
 const OBSIDIAN: u32 = 10u;
+const ACID: u32 = 11u;
+const COPPER: u32 = 12u;
+const COPPER_SULFATE: u32 = 13u;
+const HYDROGEN: u32 = 14u;
+const NO_NEIGHBOR: u32 = 0xffffffffu;
 
 fn density(id: u32) -> f32 {
   return materials[id].x;
@@ -83,15 +94,15 @@ fn heatCapacityOf(id: u32) -> f32 {
 }
 
 fn isPowderOrLiquid(id: u32) -> bool {
-  return id == SAND || id == WATER || id == LAVA;
+  return id == SAND || id == WATER || id == LAVA || id == ACID || id == COPPER_SULFATE;
 }
 
 fn isGas(id: u32) -> bool {
-  return id == SMOKE || id == STEAM || id == FIRE;
+  return id == SMOKE || id == STEAM || id == FIRE || id == HYDROGEN;
 }
 
 fn isLiquid(id: u32) -> bool {
-  return id == WATER || id == LAVA;
+  return id == WATER || id == LAVA || id == ACID;
 }
 
 fn cellIndex(x: i32, y: i32, width: i32) -> u32 {
@@ -225,8 +236,11 @@ const AMBIENT_DRIFT_RATE: f32 = 0.003;
 const FIRE_DECAY_CHANCE: f32 = 0.05;
 const WOOD_IGNITE_POINT: f32 = 300.0;
 
-// Contact reactions - must stay in sync with src/reactions.ts.
-const LAVA_OBSIDIAN_CHANCE: f32 = 0.05;
+// Data-driven contact reactions (Lava+Water->Obsidian, and any Chem-category
+// reactions) are handled generically in heat() via the `reactions` buffer -
+// see src/reactions.ts. Wood/Fire below aren't simple reactant+catalyst pairs
+// (threshold-triggered ignition, catalyst-free self-decay) so they stay
+// bespoke.
 
 // Convective bias: a cell exchanges heat 3x more readily with its
 // below-neighbor than its above-neighbor (hot gas rises, so heat "arrives
@@ -379,35 +393,38 @@ fn heat(@builtin(global_invocation_id) gid: vec3<u32>) {
 
   var energyDelta = 0.0;
   var touchingWaterOrSteam = false;
-  var touchingWater = false;
+  // The up-to-4 orthogonal neighbor element ids, used by the generic
+  // contact-reaction loop below to check for a catalyst - NO_NEIGHBOR fills
+  // any slot off the edge of the grid.
+  var neighborIds = array<u32, 4>(NO_NEIGHBOR, NO_NEIGHBOR, NO_NEIGHBOR, NO_NEIGHBOR);
 
   if (x > 0) {
     let n = readBuf[cellIndex(x - 1, y, width)];
     let nTemp = thermalFromEnthalpy(n.elementId, n.enthalpy).temperature;
     energyDelta += heatFlux(nTemp, hereTemp, conductivityOf(n.elementId), hereConductivity, CONDUCTION_RATE) * WEIGHT_SIDE;
     touchingWaterOrSteam = touchingWaterOrSteam || n.elementId == WATER || n.elementId == STEAM;
-    touchingWater = touchingWater || n.elementId == WATER;
+    neighborIds[0] = n.elementId;
   }
   if (x < width - 1) {
     let n = readBuf[cellIndex(x + 1, y, width)];
     let nTemp = thermalFromEnthalpy(n.elementId, n.enthalpy).temperature;
     energyDelta += heatFlux(nTemp, hereTemp, conductivityOf(n.elementId), hereConductivity, CONDUCTION_RATE) * WEIGHT_SIDE;
     touchingWaterOrSteam = touchingWaterOrSteam || n.elementId == WATER || n.elementId == STEAM;
-    touchingWater = touchingWater || n.elementId == WATER;
+    neighborIds[1] = n.elementId;
   }
   if (y > 0) {
     let n = readBuf[cellIndex(x, y - 1, width)]; // above
     let nTemp = thermalFromEnthalpy(n.elementId, n.enthalpy).temperature;
     energyDelta += heatFlux(nTemp, hereTemp, conductivityOf(n.elementId), hereConductivity, CONDUCTION_RATE) * WEIGHT_ABOVE;
     touchingWaterOrSteam = touchingWaterOrSteam || n.elementId == WATER || n.elementId == STEAM;
-    touchingWater = touchingWater || n.elementId == WATER;
+    neighborIds[2] = n.elementId;
   }
   if (y < height - 1) {
     let n = readBuf[cellIndex(x, y + 1, width)]; // below
     let nTemp = thermalFromEnthalpy(n.elementId, n.enthalpy).temperature;
     energyDelta += heatFlux(nTemp, hereTemp, conductivityOf(n.elementId), hereConductivity, CONDUCTION_RATE) * WEIGHT_BELOW;
     touchingWaterOrSteam = touchingWaterOrSteam || n.elementId == WATER || n.elementId == STEAM;
-    touchingWater = touchingWater || n.elementId == WATER;
+    neighborIds[3] = n.elementId;
   }
 
   // Ambient drift: bottlenecked only by this material's own conductivity
@@ -419,11 +436,13 @@ fn heat(@builtin(global_invocation_id) gid: vec3<u32>) {
 
   // Combustion isn't a phase change of one substance (it's Wood becoming a
   // different substance, Fire), so it stays a simple threshold/stochastic
-  // rule rather than going through the latent-heat machinery above. Each
-  // branch re-encodes result.temperature as the new element's enthalpy
-  // (rather than leaving newEnthalpy as-is) so the temperature carries over
-  // continuously across the elementId change instead of getting reinterpreted
-  // under the new element's heatCapacity.
+  // rule rather than going through the latent-heat machinery above or the
+  // generic reaction loop below (neither Wood's ignition nor Fire's decay
+  // is a reactant+catalyst-neighbor pair). Each branch re-encodes
+  // result.temperature as the new element's enthalpy (rather than leaving
+  // newEnthalpy as-is) so the temperature carries over continuously across
+  // the elementId change instead of getting reinterpreted under the new
+  // element's heatCapacity.
   if (here.elementId == WOOD && result.temperature > WOOD_IGNITE_POINT) {
     result.elementId = FIRE;
     newEnthalpy = enthalpyForNewElement(result.temperature, FIRE);
@@ -438,16 +457,36 @@ fn heat(@builtin(global_invocation_id) gid: vec3<u32>) {
         newEnthalpy = enthalpyForNewElement(result.temperature, SMOKE);
       }
     }
-  } else if (here.elementId == LAVA && touchingWater) {
-    // Contact reaction (src/reactions.ts): Water boiling to Steam here is
-    // already handled by the thermal system above (conduction pushes it
-    // past 100 degrees) - this only covers Lava's alternate solidification
-    // product when quenched by water contact, instead of its normal
-    // slow cooling to Stone.
-    let roll = f32(hash(u32(x), u32(y), params.frame) & 0xffffu) / 65536.0;
-    if (roll < LAVA_OBSIDIAN_CHANCE) {
-      result.elementId = OBSIDIAN;
-      newEnthalpy = enthalpyForNewElement(result.temperature, OBSIDIAN);
+  } else {
+    // Data-driven contact reactions (src/reactions.ts): reactant + adjacent
+    // catalyst -> product, e.g. Lava+Water->Obsidian or
+    // Copper+Acid->Copper Sulfate. First matching-and-triggered reaction
+    // wins (a cell can't be transformed twice in one tick).
+    for (var i = 0u; i < params.reactionCount; i = i + 1u) {
+      let row0 = reactions[i * 2u];
+      if (here.elementId != u32(row0.x)) {
+        continue;
+      }
+      let catalyst = u32(row0.y);
+      var matched = false;
+      for (var j = 0u; j < 4u; j = j + 1u) {
+        if (neighborIds[j] == catalyst) {
+          matched = true;
+        }
+      }
+      if (!matched) {
+        continue;
+      }
+      // Seed with the reaction index too, so multiple reactions don't share
+      // (and correlate with) the same roll on a given cell/frame.
+      let roll = f32(hash(u32(x), u32(y), params.frame + i * 7919u) & 0xffffu) / 65536.0;
+      if (roll < row0.w) {
+        let product = u32(row0.z);
+        let enthalpyDelta = reactions[i * 2u + 1u].x;
+        result.elementId = product;
+        newEnthalpy = enthalpyForNewElement(result.temperature, product) + enthalpyDelta;
+        break;
+      }
     }
   }
 
