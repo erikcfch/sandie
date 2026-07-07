@@ -14,6 +14,7 @@ body {
 }
 
 .app {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -132,4 +133,19 @@ canvas#grid {
   background: #1a1a1a;
   color: #eee;
   cursor: pointer;
+}
+
+.profiler-overlay {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #0f0;
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+  white-space: pre;
+  pointer-events: none;
+  border-radius: 4px;
+  z-index: 10;
 }
