@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ELEMENTS, colorPalette, getElement, getElementByName } from './elements';
+import { ELEMENTS, colorPalette, getElement, getElementByName, materialProperties } from './elements';
 
 describe('ELEMENTS table', () => {
   it('assigns each element a unique, contiguous id starting at 0', () => {
@@ -77,6 +77,25 @@ describe('ELEMENTS table', () => {
   it('gives Fire a defaultTemp above the 300 wood-ignition point', () => {
     expect(getElementByName('Fire').defaultTemp).toBeGreaterThan(300);
   });
+
+  it('gives Ice a density high enough to block powder/liquid, like Stone/Wood', () => {
+    expect(getElementByName('Ice').density).toBeGreaterThan(getElementByName('Sand').density);
+  });
+
+  it('gives every element a positive thermalConductivity and heatCapacity', () => {
+    for (const element of ELEMENTS) {
+      expect(element.thermalConductivity).toBeGreaterThan(0);
+      expect(element.heatCapacity).toBeGreaterThan(0);
+    }
+  });
+
+  it('gives Water a much higher heatCapacity than Stone, so it acts as a thermal buffer/coolant', () => {
+    expect(getElementByName('Water').heatCapacity).toBeGreaterThan(getElementByName('Stone').heatCapacity * 2);
+  });
+
+  it('gives Wood a lower thermalConductivity than Stone, so it insulates', () => {
+    expect(getElementByName('Wood').thermalConductivity).toBeLessThan(getElementByName('Stone').thermalConductivity);
+  });
 });
 
 describe('getElement', () => {
@@ -119,5 +138,22 @@ describe('colorPalette', () => {
     expect(palette[offset + 1]).toBeCloseTo(sand.color[1] / 255);
     expect(palette[offset + 2]).toBeCloseTo(sand.color[2] / 255);
     expect(palette[offset + 3]).toBeCloseTo(1);
+  });
+});
+
+describe('materialProperties', () => {
+  it('returns 4 floats (density, thermalConductivity, heatCapacity, unused) per element, indexed by element id', () => {
+    const props = materialProperties();
+    expect(props).toBeInstanceOf(Float32Array);
+    expect(props.length).toBe(ELEMENTS.length * 4);
+  });
+
+  it('places each element density, thermalConductivity, and heatCapacity at its id offset', () => {
+    const water = getElementByName('Water');
+    const props = materialProperties();
+    const offset = water.id * 4;
+    expect(props[offset]).toBeCloseTo(water.density);
+    expect(props[offset + 1]).toBeCloseTo(water.thermalConductivity);
+    expect(props[offset + 2]).toBeCloseTo(water.heatCapacity);
   });
 });

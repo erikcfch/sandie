@@ -3,18 +3,17 @@
 // Element ids must stay in sync with src/elements.ts:
 //   0=Empty 1=Stone 2=Sand 3=Water 4=Wood 5=Smoke 6=Ice 7=Lava 8=Steam 9=Fire
 //
-// Each grid cell is a Cell{elementId, temperature} struct (see below), not a
-// bare element id. This lets the movement pass swap material and its heat
-// together atomically - a falling Lava cell carries its temperature down
-// with it - with no separate bookkeeping.
+// Each grid cell is a Cell{elementId, enthalpy} struct. Enthalpy (not raw
+// temperature) is the stored quantity - see the "Latent heat" section below
+// for why. The movement pass swaps whole Cells, so heat travels with
+// material atomically with no separate bookkeeping.
 //
 // Two compute passes run per tick, sharing this module:
 //   `movement` - the Phase 1 Margolus-neighborhood swap logic, now moving
 //                whole Cells instead of raw ids.
-//   `heat`     - new in Phase 2: blends each cell's temperature toward its
-//                4 orthogonal neighbors and a fixed ambient value, then
-//                checks the result against phase-change thresholds and
-//                rewrites elementId if one is crossed.
+//   `heat`     - blends heat with neighbors (conduction, scaled by each
+//                material's thermalConductivity), drifts toward ambient,
+//                and derives a new temperature/elementId from the result.
 //
 // Movement uses a Margolus neighborhood: the grid is partitioned into
 // non-overlapping 2x2 blocks, and each block is resolved by exactly one
@@ -25,15 +24,26 @@
 // params.frame, so over a few ticks every possible adjacency gets a chance
 // to interact.
 //
-// This replaced an earlier design that paired every cell with one neighbor
-// via a single frame-wide direction choice - that made an entire row (or
-// the whole grid) lurch the same way in lockstep every tick, which showed
-// up as water "bouncing like a laser" and pours splitting into exactly two
-// streams.
+// Material properties (density, thermalConductivity, heatCapacity) are read
+// from a GPU buffer built from src/elements.ts - the single source of
+// truth - instead of being hand-duplicated as WGSL constants.
+//
+// Latent heat: a cell stores enthalpy (accumulated heat energy), not
+// temperature directly. Temperature is derived from enthalpy via each
+// material's heatCapacity. This is what makes true latent heat work with no
+// extra per-cell state: within a phase, temperature = enthalpy / heatCapacity
+// (a straight line). At a phase transition (e.g. Ice melting at 0 degrees),
+// energy keeps accumulating in enthalpy while temperature holds flat at the
+// boundary for a stretch (the plateau's width is that transition's
+// latentHeat) - exactly the melting-plateau behavior real materials show,
+// and it also means the element only flips (Ice -> Water) once enthalpy has
+// climbed all the way through that band, not the instant it touches 0.
+// Phase-transition boundary temps and latent heats must stay in sync with
+// src/phaseTransitions.ts.
 
 struct Cell {
   elementId: u32,
-  temperature: f32,
+  enthalpy: f32,
 }
 
 struct SimParams {
@@ -46,6 +56,7 @@ struct SimParams {
 @group(0) @binding(0) var<uniform> params: SimParams;
 @group(0) @binding(1) var<storage, read> readBuf: array<Cell>;
 @group(0) @binding(2) var<storage, read_write> writeBuf: array<Cell>;
+@group(0) @binding(3) var<storage, read> materials: array<vec4<f32>>; // (density, thermalConductivity, heatCapacity, unused)
 
 const EMPTY: u32 = 0u;
 const STONE: u32 = 1u;
@@ -58,20 +69,16 @@ const LAVA: u32 = 7u;
 const STEAM: u32 = 8u;
 const FIRE: u32 = 9u;
 
-fn density(id: u32) -> i32 {
-  switch id {
-    case 0u: { return 0; }   // Empty
-    case 1u: { return 100; } // Stone
-    case 2u: { return 60; }  // Sand
-    case 3u: { return 40; }  // Water
-    case 4u: { return 90; }  // Wood
-    case 5u: { return 1; }   // Smoke
-    case 6u: { return 95; }  // Ice - static, but must still block powder/liquid like Stone/Wood
-    case 7u: { return 50; }  // Lava - between Sand and Water
-    case 8u: { return 1; }   // Steam
-    case 9u: { return 1; }   // Fire
-    default: { return 0; }
-  }
+fn density(id: u32) -> f32 {
+  return materials[id].x;
+}
+
+fn conductivityOf(id: u32) -> f32 {
+  return materials[id].y;
+}
+
+fn heatCapacityOf(id: u32) -> f32 {
+  return materials[id].z;
 }
 
 fn isPowderOrLiquid(id: u32) -> bool {
@@ -212,22 +219,99 @@ fn movement(@builtin(global_invocation_id) gid: vec3<u32>) {
   writeBuf[idxD] = d;
 }
 
-const CONDUCTION_RATE: f32 = 0.15;
-const AMBIENT_DRIFT_RATE: f32 = 0.001;
+const CONDUCTION_RATE: f32 = 0.1;
+const AMBIENT_DRIFT_RATE: f32 = 0.003;
 const FIRE_DECAY_CHANCE: f32 = 0.05;
+const WOOD_IGNITE_POINT: f32 = 300.0;
 
-// Convective bias for the heat blend below: a cell is warmed 3x more by
-// its below-neighbor than it is by its above-neighbor.
+// Convective bias: a cell exchanges heat 3x more readily with its
+// below-neighbor than its above-neighbor (hot gas rises, so heat "arrives
+// from below" more than it "leaks upward" from above). Side neighbors
+// stay neutral.
 const WEIGHT_BELOW: f32 = 1.5;
 const WEIGHT_ABOVE: f32 = 0.5;
 const WEIGHT_SIDE: f32 = 1.0;
-const WEIGHT_TOTAL: f32 = WEIGHT_BELOW + WEIGHT_ABOVE + WEIGHT_SIDE + WEIGHT_SIDE;
 
-const ICE_MELT_POINT: f32 = 0.0;
-const WATER_BOIL_POINT: f32 = 100.0;
-const LAVA_SOLIDIFY_POINT: f32 = 300.0;
-const STONE_MELT_POINT: f32 = 800.0;
-const WOOD_IGNITE_POINT: f32 = 300.0;
+// Phase-transition boundary temps and latent heats - must stay in sync
+// with src/phaseTransitions.ts.
+const ICE_WATER_BOUNDARY: f32 = 0.0;
+const ICE_WATER_LATENT: f32 = 80.0;
+const WATER_STEAM_BOUNDARY: f32 = 100.0;
+const WATER_STEAM_LATENT: f32 = 540.0;
+const STONE_LAVA_BOUNDARY: f32 = 700.0;
+const STONE_LAVA_LATENT: f32 = 200.0;
+
+fn isWaterFamily(id: u32) -> bool {
+  return id == ICE || id == WATER || id == STEAM;
+}
+
+fn isLavaFamily(id: u32) -> bool {
+  return id == STONE || id == LAVA;
+}
+
+struct ThermalResult {
+  temperature: f32,
+  elementId: u32,
+}
+
+// Ice(6) <-> Water(3) <-> Steam(8). Hand-unrolled port of thermal.ts's
+// generic chain-walk for this specific 3-segment chain.
+fn waterChainFromEnthalpy(currentElementId: u32, enthalpy: f32) -> ThermalResult {
+  let iceCap = heatCapacityOf(ICE);
+  let waterCap = heatCapacityOf(WATER);
+  let steamCap = heatCapacityOf(STEAM);
+  let plateau1Start = iceCap * ICE_WATER_BOUNDARY;
+  let plateau1End = plateau1Start + ICE_WATER_LATENT;
+  let plateau2Start = plateau1End + waterCap * (WATER_STEAM_BOUNDARY - ICE_WATER_BOUNDARY);
+  let plateau2End = plateau2Start + WATER_STEAM_LATENT;
+
+  if (enthalpy < plateau1Start) {
+    return ThermalResult(enthalpy / iceCap, ICE);
+  }
+  if (enthalpy < plateau1End) {
+    return ThermalResult(ICE_WATER_BOUNDARY, select(ICE, WATER, currentElementId == WATER));
+  }
+  if (enthalpy < plateau2Start) {
+    return ThermalResult(ICE_WATER_BOUNDARY + (enthalpy - plateau1End) / waterCap, WATER);
+  }
+  if (enthalpy < plateau2End) {
+    return ThermalResult(WATER_STEAM_BOUNDARY, select(WATER, STEAM, currentElementId == STEAM));
+  }
+  return ThermalResult(WATER_STEAM_BOUNDARY + (enthalpy - plateau2End) / steamCap, STEAM);
+}
+
+// Stone(1) <-> Lava(7).
+fn lavaChainFromEnthalpy(currentElementId: u32, enthalpy: f32) -> ThermalResult {
+  let stoneCap = heatCapacityOf(STONE);
+  let lavaCap = heatCapacityOf(LAVA);
+  let plateauStart = stoneCap * STONE_LAVA_BOUNDARY;
+  let plateauEnd = plateauStart + STONE_LAVA_LATENT;
+
+  if (enthalpy < plateauStart) {
+    return ThermalResult(enthalpy / stoneCap, STONE);
+  }
+  if (enthalpy < plateauEnd) {
+    return ThermalResult(STONE_LAVA_BOUNDARY, select(STONE, LAVA, currentElementId == LAVA));
+  }
+  return ThermalResult(STONE_LAVA_BOUNDARY + (enthalpy - plateauEnd) / lavaCap, LAVA);
+}
+
+fn thermalFromEnthalpy(currentElementId: u32, enthalpy: f32) -> ThermalResult {
+  if (isWaterFamily(currentElementId)) {
+    return waterChainFromEnthalpy(currentElementId, enthalpy);
+  }
+  if (isLavaFamily(currentElementId)) {
+    return lavaChainFromEnthalpy(currentElementId, enthalpy);
+  }
+  return ThermalResult(enthalpy / heatCapacityOf(currentElementId), currentElementId);
+}
+
+// Energy flowing from `tempFrom` toward `tempTo` this tick, bottlenecked by
+// whichever side conducts worse (a poor insulator anywhere in the path
+// limits flow, like a resistor in series).
+fn heatFlux(tempFrom: f32, tempTo: f32, condFrom: f32, condTo: f32, rate: f32) -> f32 {
+  return min(condFrom, condTo) * rate * (tempFrom - tempTo);
+}
 
 @compute @workgroup_size(8, 8)
 fn heat(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -240,99 +324,59 @@ fn heat(@builtin(global_invocation_id) gid: vec3<u32>) {
   }
   let idx = cellIndex(x, y, width);
   let here = readBuf[idx];
+  let hereTemp = thermalFromEnthalpy(here.elementId, here.enthalpy).temperature;
+  let hereConductivity = conductivityOf(here.elementId);
 
-  // Blend with the 4 orthogonal neighbors; at the grid edge, substitute
-  // this cell's own value so the boundary doesn't act like an artificial
-  // heat sink.
-  //
-  // Weighted, not a flat average: convection carries hot gas upward, so a
-  // cell is warmed more by what's below it than it loses to what's above
-  // it (y grows downward, so y+1 is physically below). Side neighbors stay
-  // neutral. Weights sum to WEIGHT_TOTAL so the overall conduction rate
-  // stays calibrated the same as a plain 4-neighbor average.
-  var neighborTempSum = 0.0;
+  var energyDelta = 0.0;
   var touchingWaterOrSteam = false;
 
   if (x > 0) {
     let n = readBuf[cellIndex(x - 1, y, width)];
-    neighborTempSum += n.temperature * WEIGHT_SIDE;
+    let nTemp = thermalFromEnthalpy(n.elementId, n.enthalpy).temperature;
+    energyDelta += heatFlux(nTemp, hereTemp, conductivityOf(n.elementId), hereConductivity, CONDUCTION_RATE) * WEIGHT_SIDE;
     touchingWaterOrSteam = touchingWaterOrSteam || n.elementId == WATER || n.elementId == STEAM;
-  } else {
-    neighborTempSum += here.temperature * WEIGHT_SIDE;
   }
   if (x < width - 1) {
     let n = readBuf[cellIndex(x + 1, y, width)];
-    neighborTempSum += n.temperature * WEIGHT_SIDE;
+    let nTemp = thermalFromEnthalpy(n.elementId, n.enthalpy).temperature;
+    energyDelta += heatFlux(nTemp, hereTemp, conductivityOf(n.elementId), hereConductivity, CONDUCTION_RATE) * WEIGHT_SIDE;
     touchingWaterOrSteam = touchingWaterOrSteam || n.elementId == WATER || n.elementId == STEAM;
-  } else {
-    neighborTempSum += here.temperature * WEIGHT_SIDE;
   }
   if (y > 0) {
     let n = readBuf[cellIndex(x, y - 1, width)]; // above
-    neighborTempSum += n.temperature * WEIGHT_ABOVE;
+    let nTemp = thermalFromEnthalpy(n.elementId, n.enthalpy).temperature;
+    energyDelta += heatFlux(nTemp, hereTemp, conductivityOf(n.elementId), hereConductivity, CONDUCTION_RATE) * WEIGHT_ABOVE;
     touchingWaterOrSteam = touchingWaterOrSteam || n.elementId == WATER || n.elementId == STEAM;
-  } else {
-    neighborTempSum += here.temperature * WEIGHT_ABOVE;
   }
   if (y < height - 1) {
     let n = readBuf[cellIndex(x, y + 1, width)]; // below
-    neighborTempSum += n.temperature * WEIGHT_BELOW;
+    let nTemp = thermalFromEnthalpy(n.elementId, n.enthalpy).temperature;
+    energyDelta += heatFlux(nTemp, hereTemp, conductivityOf(n.elementId), hereConductivity, CONDUCTION_RATE) * WEIGHT_BELOW;
     touchingWaterOrSteam = touchingWaterOrSteam || n.elementId == WATER || n.elementId == STEAM;
-  } else {
-    neighborTempSum += here.temperature * WEIGHT_BELOW;
   }
 
-  let neighborAvg = neighborTempSum / WEIGHT_TOTAL;
-  var newTemp = mix(here.temperature, neighborAvg, CONDUCTION_RATE);
-  newTemp = mix(newTemp, params.ambientTemp, AMBIENT_DRIFT_RATE);
+  // Ambient drift: bottlenecked only by this material's own conductivity
+  // (a good insulator drifts toward ambient slower).
+  energyDelta += hereConductivity * AMBIENT_DRIFT_RATE * (params.ambientTemp - hereTemp);
 
-  var newElementId = here.elementId;
+  let newEnthalpy = here.enthalpy + energyDelta;
+  var result = thermalFromEnthalpy(here.elementId, newEnthalpy);
 
-  switch here.elementId {
-    case 3u: { // Water
-      if (newTemp < ICE_MELT_POINT) {
-        newElementId = ICE;
-      } else if (newTemp > WATER_BOIL_POINT) {
-        newElementId = STEAM;
+  // Combustion isn't a phase change of one substance (it's Wood becoming a
+  // different substance, Fire), so it stays a simple threshold/stochastic
+  // rule rather than going through the latent-heat machinery above.
+  if (here.elementId == WOOD && result.temperature > WOOD_IGNITE_POINT) {
+    result.elementId = FIRE;
+  } else if (here.elementId == FIRE) {
+    if (touchingWaterOrSteam) {
+      result.elementId = STEAM;
+    } else {
+      let roll = f32(hash(u32(x), u32(y), params.frame) & 0xffffu) / 65536.0;
+      if (roll < FIRE_DECAY_CHANCE) {
+        result.elementId = SMOKE;
       }
     }
-    case 6u: { // Ice
-      if (newTemp > ICE_MELT_POINT) {
-        newElementId = WATER;
-      }
-    }
-    case 8u: { // Steam
-      if (newTemp < WATER_BOIL_POINT) {
-        newElementId = WATER;
-      }
-    }
-    case 7u: { // Lava
-      if (newTemp < LAVA_SOLIDIFY_POINT) {
-        newElementId = STONE;
-      }
-    }
-    case 1u: { // Stone
-      if (newTemp > STONE_MELT_POINT) {
-        newElementId = LAVA;
-      }
-    }
-    case 4u: { // Wood
-      if (newTemp > WOOD_IGNITE_POINT) {
-        newElementId = FIRE;
-      }
-    }
-    case 9u: { // Fire
-      if (touchingWaterOrSteam) {
-        newElementId = STEAM;
-      } else {
-        let roll = f32(hash(u32(x), u32(y), params.frame) & 0xffffu) / 65536.0;
-        if (roll < FIRE_DECAY_CHANCE) {
-          newElementId = SMOKE;
-        }
-      }
-    }
-    default: {}
   }
 
-  writeBuf[idx] = Cell(newElementId, newTemp);
+  writeBuf[idx] = Cell(result.elementId, newEnthalpy);
 }

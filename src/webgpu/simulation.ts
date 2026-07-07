@@ -1,15 +1,17 @@
 import { GRID_HEIGHT, GRID_WIDTH, WORKGROUP_SIZE } from '../config';
-import { AMBIENT_TEMP as ELEMENT_AMBIENT_TEMP, colorPalette, ELEMENTS, getElement } from '../elements';
+import { AMBIENT_TEMP as ELEMENT_AMBIENT_TEMP, colorPalette, ELEMENTS, getElement, materialProperties } from '../elements';
 import paintShaderCode from '../shaders/paint.wgsl?raw';
 import renderShaderCode from '../shaders/render.wgsl?raw';
 import simulateShaderCode from '../shaders/simulate.wgsl?raw';
+import { enthalpyForTemperature } from '../thermal';
 
 const CELL_COUNT = GRID_WIDTH * GRID_HEIGHT;
-const CELL_BYTES = 8; // Cell{elementId: u32, temperature: f32}
+const CELL_BYTES = 8; // Cell{elementId: u32, enthalpy: f32}
 const GRID_BYTES = CELL_COUNT * CELL_BYTES;
 const WORKGROUPS_X = Math.ceil(GRID_WIDTH / WORKGROUP_SIZE);
 const WORKGROUPS_Y = Math.ceil(GRID_HEIGHT / WORKGROUP_SIZE);
 const AMBIENT_TEMP = 20;
+const EMPTY_ID = 0;
 
 export interface PaintInput {
   active: boolean;
@@ -38,6 +40,7 @@ export class Simulation {
   private readonly gridBufferA: GPUBuffer;
   private readonly gridBufferB: GPUBuffer;
   private readonly paletteBuffer: GPUBuffer;
+  private readonly materialsBuffer: GPUBuffer;
   private readonly simParamsBuffer: GPUBuffer;
   private readonly paintParamsBuffer: GPUBuffer;
   private readonly renderParamsBuffer: GPUBuffer;
@@ -76,6 +79,13 @@ export class Simulation {
     });
     device.queue.writeBuffer(this.paletteBuffer, 0, colorPalette());
 
+    this.materialsBuffer = device.createBuffer({
+      label: 'materials',
+      size: ELEMENTS.length * 4 * 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(this.materialsBuffer, 0, materialProperties());
+
     this.simParamsBuffer = device.createBuffer({
       label: 'sim-params',
       size: 16,
@@ -102,6 +112,7 @@ export class Simulation {
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
         { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
         { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
       ],
     });
     const paintBindGroupLayout = device.createBindGroupLayout({
@@ -117,6 +128,7 @@ export class Simulation {
         { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
         { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
         { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
+        { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
       ],
     });
 
@@ -149,6 +161,7 @@ export class Simulation {
         { binding: 0, resource: { buffer: this.simParamsBuffer } },
         { binding: 1, resource: { buffer: this.gridBufferA } },
         { binding: 2, resource: { buffer: this.gridBufferB } },
+        { binding: 3, resource: { buffer: this.materialsBuffer } },
       ],
     });
     this.heatBindGroup = device.createBindGroup({
@@ -157,6 +170,7 @@ export class Simulation {
         { binding: 0, resource: { buffer: this.simParamsBuffer } },
         { binding: 1, resource: { buffer: this.gridBufferB } },
         { binding: 2, resource: { buffer: this.gridBufferA } },
+        { binding: 3, resource: { buffer: this.materialsBuffer } },
       ],
     });
     this.paintBindGroup = device.createBindGroup({
@@ -172,6 +186,7 @@ export class Simulation {
         { binding: 0, resource: { buffer: this.renderParamsBuffer } },
         { binding: 1, resource: { buffer: this.gridBufferA } },
         { binding: 2, resource: { buffer: this.paletteBuffer } },
+        { binding: 3, resource: { buffer: this.materialsBuffer } },
       ],
     });
 
@@ -205,6 +220,9 @@ export class Simulation {
     // regardless of ambient.
     const element = getElement(paint.elementId);
     const paintTemperature = element.defaultTemp === ELEMENT_AMBIENT_TEMP ? ambientTemp : element.defaultTemp;
+    // Encoded CPU-side so the shaders never need to duplicate the
+    // chain/latent-heat math from src/thermal.ts.
+    const paintEnthalpy = enthalpyForTemperature(paintTemperature, paint.elementId);
 
     const paintParams = new ArrayBuffer(40);
     const paintView = new DataView(paintParams);
@@ -217,7 +235,7 @@ export class Simulation {
     paintView.setUint32(24, paint.active ? 1 : 0, true);
     paintView.setFloat32(28, paint.flowRate, true);
     paintView.setUint32(32, this.frame, true);
-    paintView.setFloat32(36, paintTemperature, true);
+    paintView.setFloat32(36, paintEnthalpy, true);
     this.device.queue.writeBuffer(this.paintParamsBuffer, 0, paintParams);
 
     this.device.queue.writeBuffer(
@@ -276,11 +294,12 @@ export class Simulation {
   }
 
   reset(ambientTemp: number = AMBIENT_TEMP): void {
+    const emptyEnthalpy = enthalpyForTemperature(ambientTemp, EMPTY_ID);
     const cells = new ArrayBuffer(GRID_BYTES);
     const view = new DataView(cells);
     for (let i = 0; i < CELL_COUNT; i++) {
       view.setUint32(i * CELL_BYTES, 0, true);
-      view.setFloat32(i * CELL_BYTES + 4, ambientTemp, true);
+      view.setFloat32(i * CELL_BYTES + 4, emptyEnthalpy, true);
     }
     this.device.queue.writeBuffer(this.gridBufferA, 0, cells);
     this.device.queue.writeBuffer(this.gridBufferB, 0, cells);

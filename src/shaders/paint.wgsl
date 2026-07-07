@@ -12,7 +12,7 @@
 
 struct Cell {
   elementId: u32,
-  temperature: f32,
+  enthalpy: f32,
 }
 
 struct PaintParams {
@@ -25,7 +25,10 @@ struct PaintParams {
   enabled: u32,
   flowRate: f32,
   frame: u32,
-  temperature: f32,
+  // Precomputed CPU-side (src/thermal.ts's enthalpyForTemperature) from the
+  // selected element's target temperature - keeps the chain/latent-heat
+  // math in one place instead of also porting it into this shader.
+  enthalpy: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: PaintParams;
@@ -60,5 +63,5 @@ fn paint(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
   }
 
-  grid[u32(y * width + x)] = Cell(params.elementId, params.temperature);
+  grid[u32(y * width + x)] = Cell(params.elementId, params.enthalpy);
 }
