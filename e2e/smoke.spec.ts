@@ -26,3 +26,23 @@ test('app loads, and either runs the WebGPU simulation or degrades gracefully', 
   expect(pageErrors, `unexpected page errors: ${pageErrors.join('; ')}`).toEqual([]);
   expect(consoleErrors, `unexpected console errors: ${consoleErrors.join('; ')}`).toEqual([]);
 });
+
+test('backtick toggles the profiler overlay', async ({ page }) => {
+  await page.goto('/');
+
+  const canvas = page.locator('canvas#grid');
+  const unsupported = page.locator('.unsupported');
+  await expect(canvas.or(unsupported)).toBeVisible();
+  if (!(await canvas.isVisible())) {
+    test.skip();
+  }
+
+  const overlay = page.locator('.profiler-overlay');
+  await expect(overlay).toBeHidden();
+
+  await page.keyboard.press('`');
+  await expect(overlay).toBeVisible();
+
+  await page.keyboard.press('`');
+  await expect(overlay).toBeHidden();
+});
