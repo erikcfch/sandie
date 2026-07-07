@@ -36,8 +36,8 @@ export const ELEMENTS: readonly ElementDef[] = [
   { id: 12, name: 'Copper', category: 'static', density: 100, color: [184, 115, 51], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.9, heatCapacity: 0.6, family: 'chem', formula: 'Cu' },
   { id: 13, name: 'Copper Sulfate', category: 'powder', density: 70, color: [210, 225, 235], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.3, heatCapacity: 0.8, family: 'chem', formula: 'CuSO₄' },
   { id: 14, name: 'Hydrogen', category: 'gas', density: 1, color: [230, 245, 255], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.05, heatCapacity: 0.5, family: 'chem', formula: 'H₂' },
-  { id: 15, name: 'Sulfuric Acid (Very Dilute)', category: 'liquid', density: 41, color: [210, 230, 120], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.28, heatCapacity: 4.2, family: 'chem', formula: 'H₂SO₄ (~10%)' },
-  { id: 16, name: 'Sulfuric Acid (Concentrated)', category: 'liquid', density: 52, color: [200, 160, 20], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.20, heatCapacity: 2.5, family: 'chem', formula: 'H₂SO₄ (conc.)' },
+  { id: 15, name: 'Sulfuric Acid (Very Dilute)', category: 'liquid', density: 41, color: [210, 230, 120], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.28, heatCapacity: 4.2, family: 'chem', formula: 'H₂SO₄' },
+  { id: 16, name: 'Sulfuric Acid (Concentrated)', category: 'liquid', density: 52, color: [200, 160, 20], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.20, heatCapacity: 2.5, family: 'chem', formula: 'H₂SO₄' },
   { id: 17, name: 'Sulfuric Acid (Fuming)', category: 'liquid', density: 56, color: [140, 100, 10], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.15, heatCapacity: 2.0, family: 'chem', formula: 'H₂SO₄·SO₃' },
   { id: 18, name: 'Sulfur Dioxide', category: 'gas', density: 1, color: [225, 225, 150], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.05, heatCapacity: 0.6, family: 'chem', formula: 'SO₂' },
 ];
