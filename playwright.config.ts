@@ -16,4 +16,13 @@ export default defineConfig({
       args: ['--enable-unsafe-webgpu'],
     },
   },
+  // Starts the dev server for the test run rather than relying on one
+  // already being up - reuseExistingServer is local-only so CI always
+  // exercises a fresh server instead of silently reusing stale state.
+  webServer: {
+    command: 'npm run dev',
+    url: 'http://localhost:5173',
+    reuseExistingServer: !process.env.CI,
+    timeout: 120_000,
+  },
 });
