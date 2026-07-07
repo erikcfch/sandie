@@ -21,6 +21,7 @@ export class Profiler {
   private readonly resolveBuffer?: GPUBuffer;
   private readonly readbackBuffer?: GPUBuffer;
   private mapping = false;
+  private pendingComputeResolved = false;
   private latestGpuComputeMs: number | null = null;
   private latestGpuRenderMs: number | null = null;
   private latestCpuSubmitMs: number | null = null;
@@ -59,11 +60,16 @@ export class Profiler {
 
   /**
    * Call once per frame, after all passes are recorded but before
-   * encoder.finish(). Skips entirely while a previous readback is still in
-   * flight, so GPU->CPU sync happens roughly one round-trip at a time
-   * instead of queuing a new mapAsync every frame.
+   * encoder.finish(). Only records resolveQuerySet/copyBufferToBuffer
+   * commands into the encoder -- it must not touch mapAsync, since the
+   * readback buffer is still a pending copy destination in an unfinished,
+   * unsubmitted command buffer at this point. Skips entirely while a
+   * previous readback is still in flight, so GPU->CPU sync happens roughly
+   * one round-trip at a time instead of queuing a new mapAsync every frame.
+   * Call startReadback() after device.queue.submit() to kick off the actual
+   * mapAsync for the commands recorded here.
    */
-  resolveInto(encoder: GPUCommandEncoder, didRunComputePass: boolean): void {
+  recordResolve(encoder: GPUCommandEncoder, didRunComputePass: boolean): void {
     if (!this.supported || !this.querySet || !this.resolveBuffer || !this.readbackBuffer || this.mapping) {
       return;
     }
@@ -87,6 +93,21 @@ export class Profiler {
       TIMESTAMP_PAIR_BYTES,
     );
 
+    this.pendingComputeResolved = didRunComputePass;
+  }
+
+  /**
+   * Call once per frame, after device.queue.submit(). Starts the mapAsync
+   * readback for the resolve/copy commands recorded by recordResolve() in
+   * this same frame (a no-op if recordResolve() skipped this frame, e.g.
+   * because a previous readback is still in flight).
+   */
+  startReadback(): void {
+    if (!this.supported || !this.querySet || !this.resolveBuffer || !this.readbackBuffer || this.mapping) {
+      return;
+    }
+
+    const didRunComputePass = this.pendingComputeResolved;
     this.mapping = true;
     const readbackBuffer = this.readbackBuffer;
     readbackBuffer
@@ -105,7 +126,7 @@ export class Profiler {
       })
       .catch(() => {
         // mapAsync can reject if the device is lost mid-frame; drop this
-        // reading and let the next resolveInto() call try again.
+        // reading and let the next recordResolve()/startReadback() pair try again.
         this.mapping = false;
       });
   }

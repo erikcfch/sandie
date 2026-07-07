@@ -348,11 +348,12 @@ export class Simulation {
     renderPass.draw(3);
     renderPass.end();
 
-    this.profiler.resolveInto(encoder, didRunComputePass);
+    this.profiler.recordResolve(encoder, didRunComputePass);
 
     const submitStart = performance.now();
     this.device.queue.submit([encoder.finish()]);
     this.profiler.recordCpuSubmitMs(performance.now() - submitStart);
+    this.profiler.startReadback();
   }
 
   reset(ambientTemp: number = AMBIENT_TEMP): void {

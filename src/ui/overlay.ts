@@ -47,7 +47,7 @@ export class Overlay {
       `GPU render: ${formatMs(snapshot.gpuRenderMs)}`,
       `CPU submit: ${formatMs(snapshot.cpuSubmitMs)}`,
       `Frame: ${formatMs(snapshot.frameMs)}${fps !== null ? ` (${fps}fps)` : ''}`,
-      `Grid: ${snapshot.gridWidth}x${snapshot.gridHeight}`,
+      `Grid: ${snapshot.gridWidth}x${snapshot.gridHeight} (${snapshot.gridWidth * snapshot.gridHeight} cells)`,
       `Ticks/frame: ${snapshot.ticksPerFrame}`,
     ].join('\n');
   }

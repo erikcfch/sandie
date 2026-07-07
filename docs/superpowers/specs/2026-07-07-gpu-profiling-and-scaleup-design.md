@@ -55,8 +55,11 @@ Query results resolve into a `MAP_READ` buffer via `resolveQuerySet` +
 mapping.
 
 **CPU timing:** `performance.now()` brackets `device.queue.submit()` (CPU
-submit time) and the `frame()` callback body in `main.ts` (measured JS frame
-time, independent of the rAF-reported delta).
+submit time). Frame time is measured in `main.ts` as the delta between the
+`performance.now()` timestamp captured at the start of one
+`requestAnimationFrame` callback and the timestamp captured at the start of
+the previous one -- i.e. the rAF-to-rAF period, which folds in idle/vsync
+wait time rather than just the callback body's own execution duration.
 
 **Display:** a plain DOM `<div>` overlay positioned over the canvas (not
 GPU-rendered — it's debug text, no reason to route it through WebGPU). Toggled
