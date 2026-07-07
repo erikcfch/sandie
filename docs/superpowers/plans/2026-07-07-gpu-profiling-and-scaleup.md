@@ -240,11 +240,31 @@ EOF
 - Consumes: `Profiler` (`constructor`, `computeTimestampWrites()`, `renderTimestampWrites()`, `resolveInto()`, `recordCpuSubmitMs()`, `snapshot()`), `ProfilerSnapshot`, from Task 2. `TICKS_PER_FRAME` from `src/config.ts` (Task 1).
 - Produces: `Simulation.getProfilerSnapshot(): ProfilerSnapshot` (new public method, for `main.ts`/`Overlay` to poll each frame).
 
+> **Reconciliation note (added after Task 3's first dispatch attempt):** the
+> code below was originally written against an earlier snapshot of
+> `simulation.ts`/`simulate.wgsl`, before a concurrent contact-reaction
+> system (data-driven `reactions` buffer, a `reactionCount` field on
+> `SimParams`, and bind-group binding 4) landed on `master`. The
+> implementer correctly refused to transcribe the stale version (it would
+> have failed WebGPU pipeline-layout validation at runtime, undetectable
+> by `tsc`) and escalated instead of improvising a redesign. The code block
+> below has been corrected in place to carry the existing reactions
+> wiring through unchanged — `reactionsBuffer`, binding 4, and
+> `CONTACT_REACTIONS`/`reactionData()` are untouched from what's already
+> on disk — while folding `reactionCount` into each tick's per-slot
+> uniform data (the slot is already `paramsStride`-sized, far larger than
+> the now-20-byte `SimParams`, so there's room). This is a mechanical
+> merge of two independent, non-conflicting features, not a new design
+> decision: the dynamic-offset/multi-tick technique and the reactions
+> buffer touch disjoint parts of the bind group (binding 0 vs. binding 4)
+> and disjoint parts of the uniform struct (first 16 bytes vs. byte 16).
+
 - [ ] **Step 1: Replace the full contents of `src/webgpu/simulation.ts`**
 
 ```ts
 import { GRID_HEIGHT, GRID_WIDTH, TICKS_PER_FRAME, WORKGROUP_SIZE } from '../config';
 import { AMBIENT_TEMP as ELEMENT_AMBIENT_TEMP, colorPalette, ELEMENTS, getElement, materialProperties } from '../elements';
+import { CONTACT_REACTIONS, reactionData } from '../reactions';
 import paintShaderCode from '../shaders/paint.wgsl?raw';
 import renderShaderCode from '../shaders/render.wgsl?raw';
 import simulateShaderCode from '../shaders/simulate.wgsl?raw';
@@ -258,7 +278,7 @@ const WORKGROUPS_X = Math.ceil(GRID_WIDTH / WORKGROUP_SIZE);
 const WORKGROUPS_Y = Math.ceil(GRID_HEIGHT / WORKGROUP_SIZE);
 const AMBIENT_TEMP = 20;
 const EMPTY_ID = 0;
-const SIM_PARAMS_BYTES = 16; // SimParams{width, height, frame, ambientTemp}
+const SIM_PARAMS_BYTES = 20; // SimParams{width, height, frame, ambientTemp, reactionCount}
 
 export interface PaintInput {
   active: boolean;
@@ -293,6 +313,7 @@ export class Simulation {
   private readonly gridBufferB: GPUBuffer;
   private readonly paletteBuffer: GPUBuffer;
   private readonly materialsBuffer: GPUBuffer;
+  private readonly reactionsBuffer: GPUBuffer;
   private readonly simParamsBuffer: GPUBuffer;
   private readonly paintParamsBuffer: GPUBuffer;
   private readonly renderParamsBuffer: GPUBuffer;
@@ -340,6 +361,14 @@ export class Simulation {
     });
     device.queue.writeBuffer(this.materialsBuffer, 0, materialProperties());
 
+    const reactions = reactionData();
+    this.reactionsBuffer = device.createBuffer({
+      label: 'reactions',
+      size: reactions.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(this.reactionsBuffer, 0, reactions);
+
     this.simParamsBuffer = device.createBuffer({
       label: 'sim-params',
       size: this.paramsStride * TICKS_PER_FRAME,
@@ -367,6 +396,7 @@ export class Simulation {
         { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
         { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
         { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
       ],
     });
     const paintBindGroupLayout = device.createBindGroupLayout({
@@ -416,6 +446,7 @@ export class Simulation {
         { binding: 1, resource: { buffer: this.gridBufferA } },
         { binding: 2, resource: { buffer: this.gridBufferB } },
         { binding: 3, resource: { buffer: this.materialsBuffer } },
+        { binding: 4, resource: { buffer: this.reactionsBuffer } },
       ],
     });
     this.heatBindGroup = device.createBindGroup({
@@ -425,6 +456,7 @@ export class Simulation {
         { binding: 1, resource: { buffer: this.gridBufferB } },
         { binding: 2, resource: { buffer: this.gridBufferA } },
         { binding: 3, resource: { buffer: this.materialsBuffer } },
+        { binding: 4, resource: { buffer: this.reactionsBuffer } },
       ],
     });
     this.paintBindGroup = device.createBindGroup({
@@ -522,6 +554,7 @@ export class Simulation {
         simView.setUint32(slotOffset + 4, GRID_HEIGHT, true);
         simView.setUint32(slotOffset + 8, this.frame + tick, true);
         simView.setFloat32(slotOffset + 12, ambientTemp, true);
+        simView.setUint32(slotOffset + 16, CONTACT_REACTIONS.length, true);
       }
       this.device.queue.writeBuffer(this.simParamsBuffer, 0, simParams);
     }
