@@ -180,28 +180,74 @@ describe('materialProperties', () => {
 
 describe('Chem elements', () => {
   it('assigns family "chem" and a formula to each new Chem element', () => {
-    for (const name of ['Sulfuric Acid', 'Copper', 'Copper Sulfate', 'Hydrogen']) {
+    for (const name of [
+      'Sulfuric Acid (Very Dilute)',
+      'Sulfuric Acid (Dilute)',
+      'Sulfuric Acid (Concentrated)',
+      'Sulfuric Acid (Fuming)',
+      'Copper',
+      'Copper Sulfate',
+      'Hydrogen',
+      'Sulfur Dioxide',
+    ]) {
       const element = getElementByName(name);
       expect(element.family).toBe('chem');
       expect(element.formula).toBeTruthy();
     }
   });
 
-  it('categorizes Sulfuric Acid as a liquid, Copper as static, Copper Sulfate as a powder, and Hydrogen as a gas', () => {
-    expect(getElementByName('Sulfuric Acid').category).toBe('liquid');
+  it('categorizes all 4 acid tiers as liquid, Copper as static, Copper Sulfate as a powder, and Hydrogen/Sulfur Dioxide as gas', () => {
+    for (const name of [
+      'Sulfuric Acid (Very Dilute)',
+      'Sulfuric Acid (Dilute)',
+      'Sulfuric Acid (Concentrated)',
+      'Sulfuric Acid (Fuming)',
+    ]) {
+      expect(getElementByName(name).category).toBe('liquid');
+    }
     expect(getElementByName('Copper').category).toBe('static');
     expect(getElementByName('Copper Sulfate').category).toBe('powder');
     expect(getElementByName('Hydrogen').category).toBe('gas');
+    expect(getElementByName('Sulfur Dioxide').category).toBe('gas');
   });
 
-  it('gives Sulfuric Acid a density between Water and Lava', () => {
-    const acid = getElementByName('Sulfuric Acid');
+  it('gives Dilute Sulfuric Acid a density between Water and Lava', () => {
+    const acid = getElementByName('Sulfuric Acid (Dilute)');
     expect(acid.density).toBeGreaterThan(getElementByName('Water').density);
     expect(acid.density).toBeLessThan(getElementByName('Lava').density);
   });
 
-  it('gives each new Chem element an ambient defaultTemp', () => {
-    for (const name of ['Sulfuric Acid', 'Copper', 'Copper Sulfate', 'Hydrogen']) {
+  it('increases acid density with concentration: Very Dilute < Dilute < Concentrated < Fuming', () => {
+    const veryDilute = getElementByName('Sulfuric Acid (Very Dilute)').density;
+    const dilute = getElementByName('Sulfuric Acid (Dilute)').density;
+    const concentrated = getElementByName('Sulfuric Acid (Concentrated)').density;
+    const fuming = getElementByName('Sulfuric Acid (Fuming)').density;
+    expect(veryDilute).toBeLessThan(dilute);
+    expect(dilute).toBeLessThan(concentrated);
+    expect(concentrated).toBeLessThan(fuming);
+  });
+
+  it('decreases acid heatCapacity with concentration (less water = less thermal buffering)', () => {
+    const veryDilute = getElementByName('Sulfuric Acid (Very Dilute)').heatCapacity;
+    const dilute = getElementByName('Sulfuric Acid (Dilute)').heatCapacity;
+    const concentrated = getElementByName('Sulfuric Acid (Concentrated)').heatCapacity;
+    const fuming = getElementByName('Sulfuric Acid (Fuming)').heatCapacity;
+    expect(veryDilute).toBeGreaterThan(dilute);
+    expect(dilute).toBeGreaterThan(concentrated);
+    expect(concentrated).toBeGreaterThan(fuming);
+  });
+
+  it('gives every acid tier and Chem element an ambient defaultTemp', () => {
+    for (const name of [
+      'Sulfuric Acid (Very Dilute)',
+      'Sulfuric Acid (Dilute)',
+      'Sulfuric Acid (Concentrated)',
+      'Sulfuric Acid (Fuming)',
+      'Copper',
+      'Copper Sulfate',
+      'Hydrogen',
+      'Sulfur Dioxide',
+    ]) {
       expect(getElementByName(name).defaultTemp).toBe(20);
     }
   });

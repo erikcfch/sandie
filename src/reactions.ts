@@ -29,7 +29,7 @@ export const CONTACT_REACTIONS: readonly ContactReaction[] = [
   },
   {
     reactant: getElementByName('Copper').id,
-    catalystNeighbor: getElementByName('Sulfuric Acid').id,
+    catalystNeighbor: getElementByName('Sulfuric Acid (Dilute)').id,
     product: getElementByName('Copper Sulfate').id,
     chance: 0.08,
     // Modest, tunable exothermic kick - roughly a third of Ice↔Water's
@@ -37,7 +37,7 @@ export const CONTACT_REACTIONS: readonly ContactReaction[] = [
     enthalpyDelta: 40,
   },
   {
-    reactant: getElementByName('Sulfuric Acid').id,
+    reactant: getElementByName('Sulfuric Acid (Dilute)').id,
     catalystNeighbor: getElementByName('Copper').id,
     product: getElementByName('Hydrogen').id,
     chance: 0.08,

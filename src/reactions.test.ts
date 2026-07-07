@@ -7,7 +7,7 @@ const WATER = getElementByName('Water').id;
 const OBSIDIAN = getElementByName('Obsidian').id;
 const SAND = getElementByName('Sand').id;
 const COPPER = getElementByName('Copper').id;
-const ACID = getElementByName('Sulfuric Acid').id;
+const ACID = getElementByName('Sulfuric Acid (Dilute)').id;
 const COPPER_SULFATE = getElementByName('Copper Sulfate').id;
 const HYDROGEN = getElementByName('Hydrogen').id;
 
