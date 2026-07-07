@@ -10,6 +10,11 @@
 // to settle and widen as it grows instead of everything funneling down a
 // single column and forking off immediately (see the "two streams" issue).
 
+struct Cell {
+  elementId: u32,
+  temperature: f32,
+}
+
 struct PaintParams {
   width: u32,
   height: u32,
@@ -20,10 +25,11 @@ struct PaintParams {
   enabled: u32,
   flowRate: f32,
   frame: u32,
+  temperature: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: PaintParams;
-@group(0) @binding(1) var<storage, read_write> grid: array<u32>;
+@group(0) @binding(1) var<storage, read_write> grid: array<Cell>;
 
 fn hash(x: u32, y: u32, frame: u32) -> u32 {
   var h = x * 374761393u + y * 668265263u + frame * 2246822519u;
@@ -54,5 +60,5 @@ fn paint(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
   }
 
-  grid[u32(y * width + x)] = params.elementId;
+  grid[u32(y * width + x)] = Cell(params.elementId, params.temperature);
 }

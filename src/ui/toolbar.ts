@@ -1,5 +1,13 @@
 import { ELEMENTS } from '../elements';
-import { MAX_BRUSH_SIZE, MAX_FLOW_RATE, MIN_BRUSH_SIZE, MIN_FLOW_RATE, ToolState } from '../toolState';
+import {
+  MAX_AMBIENT_TEMP,
+  MAX_BRUSH_SIZE,
+  MAX_FLOW_RATE,
+  MIN_AMBIENT_TEMP,
+  MIN_BRUSH_SIZE,
+  MIN_FLOW_RATE,
+  ToolState,
+} from '../toolState';
 
 export interface ToolbarCallbacks {
   onStep: () => void;
@@ -61,6 +69,24 @@ export function createToolbar(container: HTMLElement, toolState: ToolState, call
   });
   flowLabel.appendChild(flowSlider);
 
+  const ambientLabel = document.createElement('label');
+  ambientLabel.className = 'ambient-temp';
+  const ambientText = document.createElement('span');
+  const updateAmbientText = () => {
+    ambientText.textContent = `Ambient temp: ${toolState.ambientTemp}°`;
+  };
+  updateAmbientText();
+  const ambientSlider = document.createElement('input');
+  ambientSlider.type = 'range';
+  ambientSlider.min = String(MIN_AMBIENT_TEMP);
+  ambientSlider.max = String(MAX_AMBIENT_TEMP);
+  ambientSlider.value = String(toolState.ambientTemp);
+  ambientSlider.addEventListener('input', () => {
+    toolState.setAmbientTemp(Number(ambientSlider.value));
+    updateAmbientText();
+  });
+  ambientLabel.append(ambientText, ambientSlider);
+
   const controls = document.createElement('div');
   controls.className = 'controls';
 
@@ -85,6 +111,17 @@ export function createToolbar(container: HTMLElement, toolState: ToolState, call
   resetButton.textContent = 'Reset';
   resetButton.addEventListener('click', () => callbacks.onReset());
 
-  controls.append(pauseButton, stepButton, resetButton);
-  container.append(elementPicker, brushLabel, flowLabel, controls);
+  const heatMapButton = document.createElement('button');
+  heatMapButton.type = 'button';
+  const updateHeatMapLabel = () => {
+    heatMapButton.textContent = toolState.heatMapEnabled ? 'Heat map: On' : 'Heat map: Off';
+  };
+  updateHeatMapLabel();
+  heatMapButton.addEventListener('click', () => {
+    toolState.toggleHeatMap();
+    updateHeatMapLabel();
+  });
+
+  controls.append(pauseButton, stepButton, resetButton, heatMapButton);
+  container.append(elementPicker, brushLabel, flowLabel, ambientLabel, controls);
 }

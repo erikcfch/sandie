@@ -37,7 +37,7 @@ async function main(): Promise<void> {
       stepRequested = true;
     },
     onReset: () => {
-      simulation.reset();
+      simulation.reset(toolState.ambientTemp);
     },
   });
 
@@ -54,6 +54,8 @@ async function main(): Promise<void> {
         flowRate: toolState.flowRate,
       },
       simulate,
+      toolState.heatMapEnabled,
+      toolState.ambientTemp,
     );
     stepRequested = false;
     requestAnimationFrame(frame);

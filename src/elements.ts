@@ -6,15 +6,22 @@ export interface ElementDef {
   category: ElementCategory;
   density: number;
   color: [number, number, number];
+  defaultTemp: number;
 }
 
+export const AMBIENT_TEMP = 20;
+
 export const ELEMENTS: readonly ElementDef[] = [
-  { id: 0, name: 'Empty', category: 'empty', density: 0, color: [0, 0, 0] },
-  { id: 1, name: 'Stone', category: 'static', density: 100, color: [120, 120, 120] },
-  { id: 2, name: 'Sand', category: 'powder', density: 60, color: [194, 178, 128] },
-  { id: 3, name: 'Water', category: 'liquid', density: 40, color: [64, 128, 220] },
-  { id: 4, name: 'Wood', category: 'static', density: 90, color: [110, 74, 42] },
-  { id: 5, name: 'Smoke', category: 'gas', density: 1, color: [180, 180, 180] },
+  { id: 0, name: 'Empty', category: 'empty', density: 0, color: [0, 0, 0], defaultTemp: AMBIENT_TEMP },
+  { id: 1, name: 'Stone', category: 'static', density: 100, color: [120, 120, 120], defaultTemp: AMBIENT_TEMP },
+  { id: 2, name: 'Sand', category: 'powder', density: 60, color: [194, 178, 128], defaultTemp: AMBIENT_TEMP },
+  { id: 3, name: 'Water', category: 'liquid', density: 40, color: [64, 128, 220], defaultTemp: AMBIENT_TEMP },
+  { id: 4, name: 'Wood', category: 'static', density: 90, color: [110, 74, 42], defaultTemp: AMBIENT_TEMP },
+  { id: 5, name: 'Smoke', category: 'gas', density: 1, color: [180, 180, 180], defaultTemp: AMBIENT_TEMP },
+  { id: 6, name: 'Ice', category: 'static', density: 40, color: [180, 220, 240], defaultTemp: -10 },
+  { id: 7, name: 'Lava', category: 'liquid', density: 50, color: [220, 80, 20], defaultTemp: 800 },
+  { id: 8, name: 'Steam', category: 'gas', density: 1, color: [220, 220, 220], defaultTemp: 110 },
+  { id: 9, name: 'Fire', category: 'gas', density: 1, color: [240, 120, 30], defaultTemp: 400 },
 ];
 
 const BY_NAME = new Map(ELEMENTS.map((e) => [e.name, e]));

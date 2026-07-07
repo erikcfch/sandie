@@ -8,6 +8,10 @@ export const MIN_FLOW_RATE = 0;
 export const MAX_FLOW_RATE = 1;
 const DEFAULT_FLOW_RATE = 0.35;
 
+export const MIN_AMBIENT_TEMP = -50;
+export const MAX_AMBIENT_TEMP = 150;
+const DEFAULT_AMBIENT_TEMP = 20;
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
@@ -17,6 +21,8 @@ export class ToolState {
   brushSize: number = DEFAULT_BRUSH_SIZE;
   flowRate: number = DEFAULT_FLOW_RATE;
   paused: boolean = false;
+  heatMapEnabled: boolean = false;
+  ambientTemp: number = DEFAULT_AMBIENT_TEMP;
 
   selectElement(id: number): void {
     getElement(id); // throws if unknown
@@ -41,5 +47,13 @@ export class ToolState {
 
   togglePause(): void {
     this.paused = !this.paused;
+  }
+
+  toggleHeatMap(): void {
+    this.heatMapEnabled = !this.heatMapEnabled;
+  }
+
+  setAmbientTemp(temp: number): void {
+    this.ambientTemp = clamp(temp, MIN_AMBIENT_TEMP, MAX_AMBIENT_TEMP);
   }
 }

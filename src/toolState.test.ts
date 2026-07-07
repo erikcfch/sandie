@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { getElementByName } from './elements';
-import { MAX_BRUSH_SIZE, MAX_FLOW_RATE, MIN_BRUSH_SIZE, MIN_FLOW_RATE, ToolState } from './toolState';
+import {
+  MAX_AMBIENT_TEMP,
+  MAX_BRUSH_SIZE,
+  MAX_FLOW_RATE,
+  MIN_AMBIENT_TEMP,
+  MIN_BRUSH_SIZE,
+  MIN_FLOW_RATE,
+  ToolState,
+} from './toolState';
 
 describe('ToolState defaults', () => {
   it('starts with Sand selected, a mid-size brush, unpaused, and a partial flow rate', () => {
@@ -94,5 +102,45 @@ describe('pause/resume/togglePause', () => {
     expect(state.paused).toBe(true);
     state.togglePause();
     expect(state.paused).toBe(false);
+  });
+});
+
+describe('heatMapEnabled/toggleHeatMap', () => {
+  it('starts disabled', () => {
+    const state = new ToolState();
+    expect(state.heatMapEnabled).toBe(false);
+  });
+
+  it('toggles heat map state', () => {
+    const state = new ToolState();
+    state.toggleHeatMap();
+    expect(state.heatMapEnabled).toBe(true);
+    state.toggleHeatMap();
+    expect(state.heatMapEnabled).toBe(false);
+  });
+});
+
+describe('ambientTemp/setAmbientTemp', () => {
+  it('starts at an Earth-like 20 degrees', () => {
+    const state = new ToolState();
+    expect(state.ambientTemp).toBe(20);
+  });
+
+  it('sets the ambient temperature within the valid range', () => {
+    const state = new ToolState();
+    state.setAmbientTemp(50);
+    expect(state.ambientTemp).toBe(50);
+  });
+
+  it('clamps below the minimum up to the minimum', () => {
+    const state = new ToolState();
+    state.setAmbientTemp(MIN_AMBIENT_TEMP - 100);
+    expect(state.ambientTemp).toBe(MIN_AMBIENT_TEMP);
+  });
+
+  it('clamps above the maximum down to the maximum', () => {
+    const state = new ToolState();
+    state.setAmbientTemp(MAX_AMBIENT_TEMP + 100);
+    expect(state.ambientTemp).toBe(MAX_AMBIENT_TEMP);
   });
 });

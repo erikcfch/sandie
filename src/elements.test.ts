@@ -37,6 +37,46 @@ describe('ELEMENTS table', () => {
   it('gives Water a higher density than Smoke, so smoke rises through water-adjacent air', () => {
     expect(getElementByName('Water').density).toBeGreaterThan(getElementByName('Smoke').density);
   });
+
+  it('categorizes Ice as static, Lava as liquid, and Steam/Fire as gas', () => {
+    expect(getElementByName('Ice').category).toBe('static');
+    expect(getElementByName('Lava').category).toBe('liquid');
+    expect(getElementByName('Steam').category).toBe('gas');
+    expect(getElementByName('Fire').category).toBe('gas');
+  });
+
+  it('gives Lava a density between Sand and Water, so sand sinks through lava and lava sinks below water', () => {
+    expect(getElementByName('Lava').density).toBeLessThan(getElementByName('Sand').density);
+    expect(getElementByName('Lava').density).toBeGreaterThan(getElementByName('Water').density);
+  });
+
+  it('gives every element a defaultTemp', () => {
+    for (const element of ELEMENTS) {
+      expect(typeof element.defaultTemp).toBe('number');
+    }
+  });
+
+  it('gives Phase 1 elements an ambient defaultTemp of 20', () => {
+    for (const name of ['Empty', 'Stone', 'Sand', 'Water', 'Wood', 'Smoke']) {
+      expect(getElementByName(name).defaultTemp).toBe(20);
+    }
+  });
+
+  it('gives Ice a defaultTemp below its own 0-degree melt point, so ambient drift does not melt it on the very next tick', () => {
+    expect(getElementByName('Ice').defaultTemp).toBeLessThan(0);
+  });
+
+  it('gives Lava a molten defaultTemp of 800', () => {
+    expect(getElementByName('Lava').defaultTemp).toBe(800);
+  });
+
+  it('gives Steam a defaultTemp above the 100 boiling point', () => {
+    expect(getElementByName('Steam').defaultTemp).toBeGreaterThan(100);
+  });
+
+  it('gives Fire a defaultTemp above the 300 wood-ignition point', () => {
+    expect(getElementByName('Fire').defaultTemp).toBeGreaterThan(300);
+  });
 });
 
 describe('getElement', () => {
