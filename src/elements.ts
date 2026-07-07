@@ -26,6 +26,7 @@ export const ELEMENTS: readonly ElementDef[] = [
   { id: 7, name: 'Lava', category: 'liquid', density: 50, color: [220, 80, 20], defaultTemp: 800, thermalConductivity: 0.4, heatCapacity: 1.0 },
   { id: 8, name: 'Steam', category: 'gas', density: 1, color: [220, 220, 220], defaultTemp: 110, thermalConductivity: 0.05, heatCapacity: 2.0 },
   { id: 9, name: 'Fire', category: 'gas', density: 1, color: [240, 120, 30], defaultTemp: 400, thermalConductivity: 0.05, heatCapacity: 0.5 },
+  { id: 10, name: 'Obsidian', category: 'static', density: 100, color: [40, 30, 45], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.5, heatCapacity: 0.8 },
 ];
 
 const BY_NAME = new Map(ELEMENTS.map((e) => [e.name, e]));

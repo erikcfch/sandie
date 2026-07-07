@@ -68,6 +68,7 @@ const ICE: u32 = 6u;
 const LAVA: u32 = 7u;
 const STEAM: u32 = 8u;
 const FIRE: u32 = 9u;
+const OBSIDIAN: u32 = 10u;
 
 fn density(id: u32) -> f32 {
   return materials[id].x;
@@ -224,6 +225,9 @@ const AMBIENT_DRIFT_RATE: f32 = 0.003;
 const FIRE_DECAY_CHANCE: f32 = 0.05;
 const WOOD_IGNITE_POINT: f32 = 300.0;
 
+// Contact reactions - must stay in sync with src/reactions.ts.
+const LAVA_OBSIDIAN_CHANCE: f32 = 0.05;
+
 // Convective bias: a cell exchanges heat 3x more readily with its
 // below-neighbor than its above-neighbor (hot gas rises, so heat "arrives
 // from below" more than it "leaks upward" from above). Side neighbors
@@ -329,30 +333,35 @@ fn heat(@builtin(global_invocation_id) gid: vec3<u32>) {
 
   var energyDelta = 0.0;
   var touchingWaterOrSteam = false;
+  var touchingWater = false;
 
   if (x > 0) {
     let n = readBuf[cellIndex(x - 1, y, width)];
     let nTemp = thermalFromEnthalpy(n.elementId, n.enthalpy).temperature;
     energyDelta += heatFlux(nTemp, hereTemp, conductivityOf(n.elementId), hereConductivity, CONDUCTION_RATE) * WEIGHT_SIDE;
     touchingWaterOrSteam = touchingWaterOrSteam || n.elementId == WATER || n.elementId == STEAM;
+    touchingWater = touchingWater || n.elementId == WATER;
   }
   if (x < width - 1) {
     let n = readBuf[cellIndex(x + 1, y, width)];
     let nTemp = thermalFromEnthalpy(n.elementId, n.enthalpy).temperature;
     energyDelta += heatFlux(nTemp, hereTemp, conductivityOf(n.elementId), hereConductivity, CONDUCTION_RATE) * WEIGHT_SIDE;
     touchingWaterOrSteam = touchingWaterOrSteam || n.elementId == WATER || n.elementId == STEAM;
+    touchingWater = touchingWater || n.elementId == WATER;
   }
   if (y > 0) {
     let n = readBuf[cellIndex(x, y - 1, width)]; // above
     let nTemp = thermalFromEnthalpy(n.elementId, n.enthalpy).temperature;
     energyDelta += heatFlux(nTemp, hereTemp, conductivityOf(n.elementId), hereConductivity, CONDUCTION_RATE) * WEIGHT_ABOVE;
     touchingWaterOrSteam = touchingWaterOrSteam || n.elementId == WATER || n.elementId == STEAM;
+    touchingWater = touchingWater || n.elementId == WATER;
   }
   if (y < height - 1) {
     let n = readBuf[cellIndex(x, y + 1, width)]; // below
     let nTemp = thermalFromEnthalpy(n.elementId, n.enthalpy).temperature;
     energyDelta += heatFlux(nTemp, hereTemp, conductivityOf(n.elementId), hereConductivity, CONDUCTION_RATE) * WEIGHT_BELOW;
     touchingWaterOrSteam = touchingWaterOrSteam || n.elementId == WATER || n.elementId == STEAM;
+    touchingWater = touchingWater || n.elementId == WATER;
   }
 
   // Ambient drift: bottlenecked only by this material's own conductivity
@@ -375,6 +384,16 @@ fn heat(@builtin(global_invocation_id) gid: vec3<u32>) {
       if (roll < FIRE_DECAY_CHANCE) {
         result.elementId = SMOKE;
       }
+    }
+  } else if (here.elementId == LAVA && touchingWater) {
+    // Contact reaction (src/reactions.ts): Water boiling to Steam here is
+    // already handled by the thermal system above (conduction pushes it
+    // past 100 degrees) - this only covers Lava's alternate solidification
+    // product when quenched by water contact, instead of its normal
+    // slow cooling to Stone.
+    let roll = f32(hash(u32(x), u32(y), params.frame) & 0xffffu) / 65536.0;
+    if (roll < LAVA_OBSIDIAN_CHANCE) {
+      result.elementId = OBSIDIAN;
     }
   }
 

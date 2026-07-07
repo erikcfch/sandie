@@ -96,6 +96,14 @@ describe('ELEMENTS table', () => {
   it('gives Wood a lower thermalConductivity than Stone, so it insulates', () => {
     expect(getElementByName('Wood').thermalConductivity).toBeLessThan(getElementByName('Stone').thermalConductivity);
   });
+
+  it('categorizes Obsidian as a static solid sharing Stone\'s thermal properties', () => {
+    const obsidian = getElementByName('Obsidian');
+    const stone = getElementByName('Stone');
+    expect(obsidian.category).toBe('static');
+    expect(obsidian.heatCapacity).toBe(stone.heatCapacity);
+    expect(obsidian.thermalConductivity).toBe(stone.thermalConductivity);
+  });
 });
 
 describe('getElement', () => {
