@@ -46,7 +46,34 @@ canvas#grid {
 
 .element-picker {
   display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.element-family {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.element-family h3 {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #999;
+}
+
+.element-buttons {
+  display: flex;
   gap: 6px;
+  flex-wrap: wrap;
+}
+
+.formula {
+  font-size: 0.75em;
+  color: #aaa;
 }
 
 .element-picker button {

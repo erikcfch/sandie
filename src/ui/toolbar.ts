@@ -18,21 +18,50 @@ export function createToolbar(container: HTMLElement, toolState: ToolState, call
   container.innerHTML = '';
   container.className = 'toolbar';
 
+  const FAMILY_LABELS = { physical: 'Physical', chem: 'Chem' } as const;
+  const FAMILY_ORDER = ['physical', 'chem'] as const;
+
   const elementPicker = document.createElement('div');
   elementPicker.className = 'element-picker';
   const elementButtons = new Map<number, HTMLButtonElement>();
 
-  for (const element of ELEMENTS) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = element.name === 'Empty' ? 'Eraser' : element.name;
-    button.style.setProperty('--swatch', `rgb(${element.color[0]}, ${element.color[1]}, ${element.color[2]})`);
-    button.addEventListener('click', () => {
-      toolState.selectElement(element.id);
-      updateSelectedButton();
-    });
-    elementButtons.set(element.id, button);
-    elementPicker.appendChild(button);
+  for (const family of FAMILY_ORDER) {
+    const familyElements = ELEMENTS.filter((element) => element.family === family);
+    if (familyElements.length === 0) {
+      continue;
+    }
+
+    const section = document.createElement('div');
+    section.className = 'element-family';
+
+    const heading = document.createElement('h3');
+    heading.textContent = FAMILY_LABELS[family];
+    section.appendChild(heading);
+
+    const buttonRow = document.createElement('div');
+    buttonRow.className = 'element-buttons';
+
+    for (const element of familyElements) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.style.setProperty('--swatch', `rgb(${element.color[0]}, ${element.color[1]}, ${element.color[2]})`);
+      button.append(document.createTextNode(element.name === 'Empty' ? 'Eraser' : element.name));
+      if (element.formula) {
+        const formulaSpan = document.createElement('span');
+        formulaSpan.className = 'formula';
+        formulaSpan.textContent = `(${element.formula})`;
+        button.appendChild(formulaSpan);
+      }
+      button.addEventListener('click', () => {
+        toolState.selectElement(element.id);
+        updateSelectedButton();
+      });
+      elementButtons.set(element.id, button);
+      buttonRow.appendChild(button);
+    }
+
+    section.appendChild(buttonRow);
+    elementPicker.appendChild(section);
   }
 
   function updateSelectedButton(): void {
