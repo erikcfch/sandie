@@ -310,6 +310,52 @@ fn thermalFromEnthalpy(currentElementId: u32, enthalpy: f32) -> ThermalResult {
   return ThermalResult(enthalpy / heatCapacityOf(currentElementId), currentElementId);
 }
 
+// Inverse of waterChainFromEnthalpy: encodes a temperature as enthalpy
+// consistent with the water chain's plateau structure.
+fn waterChainEnthalpyForTemperature(temperature: f32) -> f32 {
+  let waterCap = heatCapacityOf(WATER);
+  let steamCap = heatCapacityOf(STEAM);
+  let plateau1End = heatCapacityOf(ICE) * ICE_WATER_BOUNDARY + ICE_WATER_LATENT;
+  let plateau2End = plateau1End + waterCap * (WATER_STEAM_BOUNDARY - ICE_WATER_BOUNDARY) + WATER_STEAM_LATENT;
+
+  if (temperature <= ICE_WATER_BOUNDARY) {
+    return heatCapacityOf(ICE) * temperature;
+  }
+  if (temperature <= WATER_STEAM_BOUNDARY) {
+    return plateau1End + waterCap * (temperature - ICE_WATER_BOUNDARY);
+  }
+  return plateau2End + steamCap * (temperature - WATER_STEAM_BOUNDARY);
+}
+
+// Inverse of lavaChainFromEnthalpy: encodes a temperature as enthalpy
+// consistent with the Stone<->Lava plateau structure.
+fn lavaChainEnthalpyForTemperature(temperature: f32) -> f32 {
+  let lavaCap = heatCapacityOf(LAVA);
+  let plateauEnd = heatCapacityOf(STONE) * STONE_LAVA_BOUNDARY + STONE_LAVA_LATENT;
+
+  if (temperature <= STONE_LAVA_BOUNDARY) {
+    return heatCapacityOf(STONE) * temperature;
+  }
+  return plateauEnd + lavaCap * (temperature - STONE_LAVA_BOUNDARY);
+}
+
+// Encodes `temperature` as enthalpy consistent with `targetElementId`'s
+// family. Used when a reaction changes a cell's elementId outright (Wood ->
+// Fire, Fire -> Steam, Lava -> Obsidian) so the pre-reaction temperature
+// carries over continuously, instead of the pre-reaction enthalpy getting
+// reinterpreted under the new element's (possibly very different)
+// heatCapacity - which would silently jump the temperature (see e.g. Lava's
+// heatCapacity of 1.0 vs Obsidian's 0.8).
+fn enthalpyForNewElement(temperature: f32, targetElementId: u32) -> f32 {
+  if (isWaterFamily(targetElementId)) {
+    return waterChainEnthalpyForTemperature(temperature);
+  }
+  if (isLavaFamily(targetElementId)) {
+    return lavaChainEnthalpyForTemperature(temperature);
+  }
+  return temperature * heatCapacityOf(targetElementId);
+}
+
 // Energy flowing from `tempFrom` toward `tempTo` this tick, bottlenecked by
 // whichever side conducts worse (a poor insulator anywhere in the path
 // limits flow, like a resistor in series).
@@ -368,21 +414,28 @@ fn heat(@builtin(global_invocation_id) gid: vec3<u32>) {
   // (a good insulator drifts toward ambient slower).
   energyDelta += hereConductivity * AMBIENT_DRIFT_RATE * (params.ambientTemp - hereTemp);
 
-  let newEnthalpy = here.enthalpy + energyDelta;
+  var newEnthalpy = here.enthalpy + energyDelta;
   var result = thermalFromEnthalpy(here.elementId, newEnthalpy);
 
   // Combustion isn't a phase change of one substance (it's Wood becoming a
   // different substance, Fire), so it stays a simple threshold/stochastic
-  // rule rather than going through the latent-heat machinery above.
+  // rule rather than going through the latent-heat machinery above. Each
+  // branch re-encodes result.temperature as the new element's enthalpy
+  // (rather than leaving newEnthalpy as-is) so the temperature carries over
+  // continuously across the elementId change instead of getting reinterpreted
+  // under the new element's heatCapacity.
   if (here.elementId == WOOD && result.temperature > WOOD_IGNITE_POINT) {
     result.elementId = FIRE;
+    newEnthalpy = enthalpyForNewElement(result.temperature, FIRE);
   } else if (here.elementId == FIRE) {
     if (touchingWaterOrSteam) {
       result.elementId = STEAM;
+      newEnthalpy = enthalpyForNewElement(result.temperature, STEAM);
     } else {
       let roll = f32(hash(u32(x), u32(y), params.frame) & 0xffffu) / 65536.0;
       if (roll < FIRE_DECAY_CHANCE) {
         result.elementId = SMOKE;
+        newEnthalpy = enthalpyForNewElement(result.temperature, SMOKE);
       }
     }
   } else if (here.elementId == LAVA && touchingWater) {
@@ -394,6 +447,7 @@ fn heat(@builtin(global_invocation_id) gid: vec3<u32>) {
     let roll = f32(hash(u32(x), u32(y), params.frame) & 0xffffu) / 65536.0;
     if (roll < LAVA_OBSIDIAN_CHANCE) {
       result.elementId = OBSIDIAN;
+      newEnthalpy = enthalpyForNewElement(result.temperature, OBSIDIAN);
     }
   }
 
