@@ -1,4 +1,5 @@
 export type ElementCategory = 'empty' | 'static' | 'powder' | 'liquid' | 'gas';
+export type ElementFamily = 'physical' | 'chem';
 
 export interface ElementDef {
   id: number;
@@ -11,22 +12,30 @@ export interface ElementDef {
   thermalConductivity: number;
   /** How much energy it takes to change this material's temperature (higher = more thermal inertia). */
   heatCapacity: number;
+  /** Which toolbar section this element groups under. */
+  family: ElementFamily;
+  /** Chemical formula shown alongside a chem-family element's name (e.g. 'CuSO₄'). */
+  formula?: string;
 }
 
 export const AMBIENT_TEMP = 20;
 
 export const ELEMENTS: readonly ElementDef[] = [
-  { id: 0, name: 'Empty', category: 'empty', density: 0, color: [0, 0, 0], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.05, heatCapacity: 0.5 },
-  { id: 1, name: 'Stone', category: 'static', density: 100, color: [120, 120, 120], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.5, heatCapacity: 0.8 },
-  { id: 2, name: 'Sand', category: 'powder', density: 60, color: [194, 178, 128], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.3, heatCapacity: 0.8 },
-  { id: 3, name: 'Water', category: 'liquid', density: 40, color: [64, 128, 220], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.25, heatCapacity: 4.0 },
-  { id: 4, name: 'Wood', category: 'static', density: 90, color: [110, 74, 42], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.1, heatCapacity: 1.7 },
-  { id: 5, name: 'Smoke', category: 'gas', density: 1, color: [180, 180, 180], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.05, heatCapacity: 0.5 },
-  { id: 6, name: 'Ice', category: 'static', density: 95, color: [180, 220, 240], defaultTemp: -10, thermalConductivity: 0.4, heatCapacity: 2.1 },
-  { id: 7, name: 'Lava', category: 'liquid', density: 50, color: [220, 80, 20], defaultTemp: 800, thermalConductivity: 0.4, heatCapacity: 1.0 },
-  { id: 8, name: 'Steam', category: 'gas', density: 1, color: [220, 220, 220], defaultTemp: 110, thermalConductivity: 0.05, heatCapacity: 2.0 },
-  { id: 9, name: 'Fire', category: 'gas', density: 1, color: [240, 120, 30], defaultTemp: 400, thermalConductivity: 0.05, heatCapacity: 0.5 },
-  { id: 10, name: 'Obsidian', category: 'static', density: 100, color: [40, 30, 45], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.5, heatCapacity: 0.8 },
+  { id: 0, name: 'Empty', category: 'empty', density: 0, color: [0, 0, 0], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.05, heatCapacity: 0.5, family: 'physical' },
+  { id: 1, name: 'Stone', category: 'static', density: 100, color: [120, 120, 120], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.5, heatCapacity: 0.8, family: 'physical' },
+  { id: 2, name: 'Sand', category: 'powder', density: 60, color: [194, 178, 128], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.3, heatCapacity: 0.8, family: 'physical' },
+  { id: 3, name: 'Water', category: 'liquid', density: 40, color: [64, 128, 220], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.25, heatCapacity: 4.0, family: 'physical' },
+  { id: 4, name: 'Wood', category: 'static', density: 90, color: [110, 74, 42], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.1, heatCapacity: 1.7, family: 'physical' },
+  { id: 5, name: 'Smoke', category: 'gas', density: 1, color: [180, 180, 180], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.05, heatCapacity: 0.5, family: 'physical' },
+  { id: 6, name: 'Ice', category: 'static', density: 95, color: [180, 220, 240], defaultTemp: -10, thermalConductivity: 0.4, heatCapacity: 2.1, family: 'physical' },
+  { id: 7, name: 'Lava', category: 'liquid', density: 50, color: [220, 80, 20], defaultTemp: 800, thermalConductivity: 0.4, heatCapacity: 1.0, family: 'physical' },
+  { id: 8, name: 'Steam', category: 'gas', density: 1, color: [220, 220, 220], defaultTemp: 110, thermalConductivity: 0.05, heatCapacity: 2.0, family: 'physical' },
+  { id: 9, name: 'Fire', category: 'gas', density: 1, color: [240, 120, 30], defaultTemp: 400, thermalConductivity: 0.05, heatCapacity: 0.5, family: 'physical' },
+  { id: 10, name: 'Obsidian', category: 'static', density: 100, color: [40, 30, 45], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.5, heatCapacity: 0.8, family: 'physical' },
+  { id: 11, name: 'Sulfuric Acid', category: 'liquid', density: 45, color: [190, 220, 40], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.25, heatCapacity: 4.0, family: 'chem', formula: 'H₂SO₄' },
+  { id: 12, name: 'Copper', category: 'static', density: 100, color: [184, 115, 51], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.9, heatCapacity: 0.6, family: 'chem', formula: 'Cu' },
+  { id: 13, name: 'Copper Sulfate', category: 'powder', density: 70, color: [210, 225, 235], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.3, heatCapacity: 0.8, family: 'chem', formula: 'CuSO₄' },
+  { id: 14, name: 'Hydrogen', category: 'gas', density: 1, color: [230, 245, 255], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.05, heatCapacity: 0.5, family: 'chem', formula: 'H₂' },
 ];
 
 const BY_NAME = new Map(ELEMENTS.map((e) => [e.name, e]));

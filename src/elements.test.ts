@@ -104,6 +104,18 @@ describe('ELEMENTS table', () => {
     expect(obsidian.heatCapacity).toBe(stone.heatCapacity);
     expect(obsidian.thermalConductivity).toBe(stone.thermalConductivity);
   });
+
+  it('assigns family "physical" to every Phase 1-4 element', () => {
+    for (const name of ['Empty', 'Stone', 'Sand', 'Water', 'Wood', 'Smoke', 'Ice', 'Lava', 'Steam', 'Fire', 'Obsidian']) {
+      expect(getElementByName(name).family).toBe('physical');
+    }
+  });
+
+  it('leaves formula unset for physical elements', () => {
+    for (const name of ['Empty', 'Stone', 'Sand', 'Water', 'Wood', 'Smoke', 'Ice', 'Lava', 'Steam', 'Fire', 'Obsidian']) {
+      expect(getElementByName(name).formula).toBeUndefined();
+    }
+  });
 });
 
 describe('getElement', () => {
@@ -163,5 +175,34 @@ describe('materialProperties', () => {
     expect(props[offset]).toBeCloseTo(water.density);
     expect(props[offset + 1]).toBeCloseTo(water.thermalConductivity);
     expect(props[offset + 2]).toBeCloseTo(water.heatCapacity);
+  });
+});
+
+describe('Chem elements', () => {
+  it('assigns family "chem" and a formula to each new Chem element', () => {
+    for (const name of ['Sulfuric Acid', 'Copper', 'Copper Sulfate', 'Hydrogen']) {
+      const element = getElementByName(name);
+      expect(element.family).toBe('chem');
+      expect(element.formula).toBeTruthy();
+    }
+  });
+
+  it('categorizes Sulfuric Acid as a liquid, Copper as static, Copper Sulfate as a powder, and Hydrogen as a gas', () => {
+    expect(getElementByName('Sulfuric Acid').category).toBe('liquid');
+    expect(getElementByName('Copper').category).toBe('static');
+    expect(getElementByName('Copper Sulfate').category).toBe('powder');
+    expect(getElementByName('Hydrogen').category).toBe('gas');
+  });
+
+  it('gives Sulfuric Acid a density between Water and Lava', () => {
+    const acid = getElementByName('Sulfuric Acid');
+    expect(acid.density).toBeGreaterThan(getElementByName('Water').density);
+    expect(acid.density).toBeLessThan(getElementByName('Lava').density);
+  });
+
+  it('gives each new Chem element an ambient defaultTemp', () => {
+    for (const name of ['Sulfuric Acid', 'Copper', 'Copper Sulfate', 'Hydrogen']) {
+      expect(getElementByName(name).defaultTemp).toBe(20);
+    }
   });
 });
