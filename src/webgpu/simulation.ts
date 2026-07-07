@@ -1,5 +1,5 @@
 import { GRID_HEIGHT, GRID_WIDTH, WORKGROUP_SIZE } from '../config';
-import { AMBIENT_TEMP as ELEMENT_AMBIENT_TEMP, colorPalette, ELEMENTS, getElement, materialProperties } from '../elements';
+import { AMBIENT_TEMP as ELEMENT_AMBIENT_TEMP, colorPalette, getElement, materialProperties } from '../elements';
 import { CONTACT_REACTIONS, reactionData } from '../reactions';
 import paintShaderCode from '../shaders/paint.wgsl?raw';
 import renderShaderCode from '../shaders/render.wgsl?raw';
@@ -61,6 +61,17 @@ export class Simulation {
 
   private frame = 0;
 
+  /** Creates a STORAGE|COPY_DST buffer sized to `data` and uploads it immediately. */
+  private createStorageBuffer(label: string, data: Float32Array): GPUBuffer {
+    const buffer = this.device.createBuffer({
+      label,
+      size: data.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    this.device.queue.writeBuffer(buffer, 0, data);
+    return buffer;
+  }
+
   private constructor(device: GPUDevice, context: GPUCanvasContext, format: GPUTextureFormat) {
     this.device = device;
     this.context = context;
@@ -76,35 +87,10 @@ export class Simulation {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
-    this.paletteBuffer = device.createBuffer({
-      label: 'palette',
-      size: ELEMENTS.length * 4 * 4,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(this.paletteBuffer, 0, colorPalette());
-
-    this.materialsBuffer = device.createBuffer({
-      label: 'materials',
-      size: ELEMENTS.length * 4 * 4,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(this.materialsBuffer, 0, materialProperties());
-
-    const reactions = reactionData();
-    this.reactionsBuffer = device.createBuffer({
-      label: 'reactions',
-      size: reactions.byteLength,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(this.reactionsBuffer, 0, reactions);
-
-    const thresholdReactions = thresholdReactionData();
-    this.thresholdReactionsBuffer = device.createBuffer({
-      label: 'threshold-reactions',
-      size: thresholdReactions.byteLength,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(this.thresholdReactionsBuffer, 0, thresholdReactions);
+    this.paletteBuffer = this.createStorageBuffer('palette', colorPalette());
+    this.materialsBuffer = this.createStorageBuffer('materials', materialProperties());
+    this.reactionsBuffer = this.createStorageBuffer('reactions', reactionData());
+    this.thresholdReactionsBuffer = this.createStorageBuffer('threshold-reactions', thresholdReactionData());
 
     this.simParamsBuffer = device.createBuffer({
       label: 'sim-params',

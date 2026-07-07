@@ -452,15 +452,16 @@ fn heat(@builtin(global_invocation_id) gid: vec3<u32>) {
   // Combustion isn't a phase change of one substance (it's Wood becoming a
   // different substance, Fire), so it stays a simple threshold/stochastic
   // rule rather than going through the latent-heat machinery above or the
-  // generic reaction loop below (neither Wood's ignition nor Fire's decay
+  // generic reaction loops below (neither Wood's ignition nor Fire's decay
   // is a reactant+catalyst-neighbor pair). Each branch re-encodes
   // result.temperature as the new element's enthalpy (rather than leaving
   // newEnthalpy as-is) so the temperature carries over continuously across
   // the elementId change instead of getting reinterpreted under the new
-  // element's heatCapacity. Consequence: the generic loop below is only
+  // element's heatCapacity. Consequence: the generic loops below are only
   // reached in the `else` case, so a CONTACT_REACTIONS entry (src/reactions.ts)
-  // with reactant WOOD or FIRE would never be evaluated - it would be
-  // silently skipped, not an error.
+  // or a THRESHOLD_REACTIONS entry (src/thresholdReactions.ts) with reactant
+  // WOOD or FIRE would never be evaluated - it would be silently skipped,
+  // not an error.
   if (here.elementId == WOOD && result.temperature > WOOD_IGNITE_POINT) {
     result.elementId = FIRE;
     newEnthalpy = enthalpyForNewElement(result.temperature, FIRE);
