@@ -1,10 +1,11 @@
-import { GRID_HEIGHT, GRID_WIDTH, WORKGROUP_SIZE } from '../config';
+import { GRID_HEIGHT, GRID_WIDTH, TICKS_PER_FRAME, WORKGROUP_SIZE } from '../config';
 import { AMBIENT_TEMP as ELEMENT_AMBIENT_TEMP, colorPalette, ELEMENTS, getElement, materialProperties } from '../elements';
 import { CONTACT_REACTIONS, reactionData } from '../reactions';
 import paintShaderCode from '../shaders/paint.wgsl?raw';
 import renderShaderCode from '../shaders/render.wgsl?raw';
 import simulateShaderCode from '../shaders/simulate.wgsl?raw';
 import { enthalpyForTemperature } from '../thermal';
+import { Profiler, type ProfilerSnapshot } from './profiler';
 
 const CELL_COUNT = GRID_WIDTH * GRID_HEIGHT;
 const CELL_BYTES = 8; // Cell{elementId: u32, enthalpy: f32}
@@ -13,6 +14,7 @@ const WORKGROUPS_X = Math.ceil(GRID_WIDTH / WORKGROUP_SIZE);
 const WORKGROUPS_Y = Math.ceil(GRID_HEIGHT / WORKGROUP_SIZE);
 const AMBIENT_TEMP = 20;
 const EMPTY_ID = 0;
+const SIM_PARAMS_BYTES = 20; // SimParams{width, height, frame, ambientTemp, reactionCount}
 
 export interface PaintInput {
   active: boolean;
@@ -33,6 +35,11 @@ export class WebGPUUnsupportedError extends Error {
 export class Simulation {
   private readonly device: GPUDevice;
   private readonly context: GPUCanvasContext;
+  private readonly profiler: Profiler;
+  // Byte stride between each tick's slot in simParamsBuffer. Must be a
+  // multiple of the device's minUniformBufferOffsetAlignment so each slot
+  // can be selected via a dynamic bind group offset (see render()).
+  private readonly paramsStride: number;
 
   // Buffer A is the single source of truth outside a tick: paint writes
   // into it directly, and render always reads from it. Buffer B is scratch
@@ -59,9 +66,11 @@ export class Simulation {
 
   private frame = 0;
 
-  private constructor(device: GPUDevice, context: GPUCanvasContext, format: GPUTextureFormat) {
+  private constructor(device: GPUDevice, context: GPUCanvasContext, format: GPUTextureFormat, profiler: Profiler) {
     this.device = device;
     this.context = context;
+    this.profiler = profiler;
+    this.paramsStride = device.limits.minUniformBufferOffsetAlignment;
 
     this.gridBufferA = device.createBuffer({
       label: 'grid-a',
@@ -98,7 +107,7 @@ export class Simulation {
 
     this.simParamsBuffer = device.createBuffer({
       label: 'sim-params',
-      size: 20,
+      size: this.paramsStride * TICKS_PER_FRAME,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     this.paintParamsBuffer = device.createBuffer({
@@ -119,7 +128,7 @@ export class Simulation {
     const simBindGroupLayout = device.createBindGroupLayout({
       label: 'sim-bgl',
       entries: [
-        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform', hasDynamicOffset: true } },
         { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
         { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
         { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
@@ -169,7 +178,7 @@ export class Simulation {
     this.movementBindGroup = device.createBindGroup({
       layout: simBindGroupLayout,
       entries: [
-        { binding: 0, resource: { buffer: this.simParamsBuffer } },
+        { binding: 0, resource: { buffer: this.simParamsBuffer, offset: 0, size: SIM_PARAMS_BYTES } },
         { binding: 1, resource: { buffer: this.gridBufferA } },
         { binding: 2, resource: { buffer: this.gridBufferB } },
         { binding: 3, resource: { buffer: this.materialsBuffer } },
@@ -179,7 +188,7 @@ export class Simulation {
     this.heatBindGroup = device.createBindGroup({
       layout: simBindGroupLayout,
       entries: [
-        { binding: 0, resource: { buffer: this.simParamsBuffer } },
+        { binding: 0, resource: { buffer: this.simParamsBuffer, offset: 0, size: SIM_PARAMS_BYTES } },
         { binding: 1, resource: { buffer: this.gridBufferB } },
         { binding: 2, resource: { buffer: this.gridBufferA } },
         { binding: 3, resource: { buffer: this.materialsBuffer } },
@@ -214,17 +223,25 @@ export class Simulation {
     if (!adapter) {
       throw new WebGPUUnsupportedError();
     }
-    const device = await adapter.requestDevice();
+    const timestampQuerySupported = adapter.features.has('timestamp-query');
+    const device = await adapter.requestDevice(
+      timestampQuerySupported ? { requiredFeatures: ['timestamp-query'] } : undefined,
+    );
     const context = canvas.getContext('webgpu');
     if (!context) {
       throw new WebGPUUnsupportedError();
     }
     const format = navigator.gpu.getPreferredCanvasFormat();
     context.configure({ device, format, alphaMode: 'opaque' });
-    return new Simulation(device, context, format);
+    const profiler = new Profiler(device, timestampQuerySupported);
+    return new Simulation(device, context, format, profiler);
   }
 
-  /** Runs one animation frame: paint, then (optionally) one simulation tick, then render. */
+  getProfilerSnapshot(): ProfilerSnapshot {
+    return this.profiler.snapshot();
+  }
+
+  /** Runs one animation frame: paint, then (optionally) TICKS_PER_FRAME simulation ticks, then render. */
   render(paint: PaintInput, simulate: boolean, heatMapEnabled: boolean, ambientTemp: number): void {
     // Elements whose defaultTemp is just "ambient" (Empty, Stone, Sand, Water,
     // Wood, Smoke) should be painted at whatever the current ambient setting
@@ -257,39 +274,61 @@ export class Simulation {
       new Uint32Array([GRID_WIDTH, GRID_HEIGHT, heatMapEnabled ? 1 : 0, 0]),
     );
 
-    const encoder = this.device.createCommandEncoder();
-
-    if (paint.active) {
-      const pass = encoder.beginComputePass();
-      pass.setPipeline(this.paintPipeline);
-      pass.setBindGroup(0, this.paintBindGroup);
-      pass.dispatchWorkgroups(WORKGROUPS_X, WORKGROUPS_Y);
-      pass.end();
-    }
-
     if (simulate) {
-      const simParams = new ArrayBuffer(20);
+      // Each of the TICKS_PER_FRAME ticks needs its own params.frame value
+      // (movement's Margolus alignment cycles on frame % 4), but a single
+      // writeBuffer + single submit means one uniform slot would only ever
+      // hold the last value written before the queue processes this
+      // frame's commands. Each tick gets its own paramsStride-aligned slot
+      // instead, selected via a dynamic bind group offset per dispatch
+      // (see the tick loop below).
+      const simParams = new ArrayBuffer(this.paramsStride * TICKS_PER_FRAME);
       const simView = new DataView(simParams);
-      simView.setUint32(0, GRID_WIDTH, true);
-      simView.setUint32(4, GRID_HEIGHT, true);
-      simView.setUint32(8, this.frame, true);
-      simView.setFloat32(12, ambientTemp, true);
-      simView.setUint32(16, CONTACT_REACTIONS.length, true);
+      for (let tick = 0; tick < TICKS_PER_FRAME; tick++) {
+        const slotOffset = tick * this.paramsStride;
+        simView.setUint32(slotOffset + 0, GRID_WIDTH, true);
+        simView.setUint32(slotOffset + 4, GRID_HEIGHT, true);
+        simView.setUint32(slotOffset + 8, this.frame + tick, true);
+        simView.setFloat32(slotOffset + 12, ambientTemp, true);
+        simView.setUint32(slotOffset + 16, CONTACT_REACTIONS.length, true);
+      }
       this.device.queue.writeBuffer(this.simParamsBuffer, 0, simParams);
-
-      const pass = encoder.beginComputePass();
-      pass.setPipeline(this.movementPipeline);
-      pass.setBindGroup(0, this.movementBindGroup);
-      pass.dispatchWorkgroups(WORKGROUPS_X, WORKGROUPS_Y);
-      pass.setPipeline(this.heatPipeline);
-      pass.setBindGroup(0, this.heatBindGroup);
-      pass.dispatchWorkgroups(WORKGROUPS_X, WORKGROUPS_Y);
-      pass.end();
-
-      this.frame++;
     }
 
-    const renderPass = encoder.beginRenderPass({
+    const encoder = this.device.createCommandEncoder();
+    const didRunComputePass = paint.active || simulate;
+
+    if (didRunComputePass) {
+      const computePassDescriptor: GPUComputePassDescriptor = {};
+      const computeTimestampWrites = this.profiler.computeTimestampWrites();
+      if (computeTimestampWrites) {
+        computePassDescriptor.timestampWrites = computeTimestampWrites;
+      }
+      const pass = encoder.beginComputePass(computePassDescriptor);
+
+      if (paint.active) {
+        pass.setPipeline(this.paintPipeline);
+        pass.setBindGroup(0, this.paintBindGroup);
+        pass.dispatchWorkgroups(WORKGROUPS_X, WORKGROUPS_Y);
+      }
+
+      if (simulate) {
+        for (let tick = 0; tick < TICKS_PER_FRAME; tick++) {
+          const slotOffset = tick * this.paramsStride;
+          pass.setPipeline(this.movementPipeline);
+          pass.setBindGroup(0, this.movementBindGroup, [slotOffset]);
+          pass.dispatchWorkgroups(WORKGROUPS_X, WORKGROUPS_Y);
+          pass.setPipeline(this.heatPipeline);
+          pass.setBindGroup(0, this.heatBindGroup, [slotOffset]);
+          pass.dispatchWorkgroups(WORKGROUPS_X, WORKGROUPS_Y);
+        }
+        this.frame += TICKS_PER_FRAME;
+      }
+
+      pass.end();
+    }
+
+    const renderPassDescriptor: GPURenderPassDescriptor = {
       colorAttachments: [
         {
           view: this.context.getCurrentTexture().createView(),
@@ -298,13 +337,22 @@ export class Simulation {
           clearValue: { r: 0, g: 0, b: 0, a: 1 },
         },
       ],
-    });
+    };
+    const renderTimestampWrites = this.profiler.renderTimestampWrites();
+    if (renderTimestampWrites) {
+      renderPassDescriptor.timestampWrites = renderTimestampWrites;
+    }
+    const renderPass = encoder.beginRenderPass(renderPassDescriptor);
     renderPass.setPipeline(this.renderPipeline);
     renderPass.setBindGroup(0, this.renderBindGroup);
     renderPass.draw(3);
     renderPass.end();
 
+    this.profiler.resolveInto(encoder, didRunComputePass);
+
+    const submitStart = performance.now();
     this.device.queue.submit([encoder.finish()]);
+    this.profiler.recordCpuSubmitMs(performance.now() - submitStart);
   }
 
   reset(ambientTemp: number = AMBIENT_TEMP): void {
