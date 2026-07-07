@@ -1,7 +1,10 @@
 import { getElementByName } from './elements';
 
 export interface ContactReaction {
-  /** The element that converts. */
+  /** The element that converts. Must not be Wood or Fire - their
+   * transformations are handled by bespoke logic in simulate.wgsl's heat(),
+   * not by the generic data-driven reaction loop, so an entry with either
+   * as reactant would silently never fire. */
   reactant: number;
   /** The element that must be orthogonally adjacent to trigger the reaction. */
   catalystNeighbor: number;

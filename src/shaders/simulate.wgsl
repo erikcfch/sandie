@@ -442,7 +442,10 @@ fn heat(@builtin(global_invocation_id) gid: vec3<u32>) {
   // result.temperature as the new element's enthalpy (rather than leaving
   // newEnthalpy as-is) so the temperature carries over continuously across
   // the elementId change instead of getting reinterpreted under the new
-  // element's heatCapacity.
+  // element's heatCapacity. Consequence: the generic loop below is only
+  // reached in the `else` case, so a CONTACT_REACTIONS entry (src/reactions.ts)
+  // with reactant WOOD or FIRE would never be evaluated - it would be
+  // silently skipped, not an error.
   if (here.elementId == WOOD && result.temperature > WOOD_IGNITE_POINT) {
     result.elementId = FIRE;
     newEnthalpy = enthalpyForNewElement(result.temperature, FIRE);

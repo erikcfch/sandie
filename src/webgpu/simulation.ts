@@ -88,12 +88,13 @@ export class Simulation {
     });
     device.queue.writeBuffer(this.materialsBuffer, 0, materialProperties());
 
+    const reactions = reactionData();
     this.reactionsBuffer = device.createBuffer({
       label: 'reactions',
-      size: CONTACT_REACTIONS.length * 8 * 4,
+      size: reactions.byteLength,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
-    device.queue.writeBuffer(this.reactionsBuffer, 0, reactionData());
+    device.queue.writeBuffer(this.reactionsBuffer, 0, reactions);
 
     this.simParamsBuffer = device.createBuffer({
       label: 'sim-params',
