@@ -29,6 +29,8 @@ export const CONTACT_REACTIONS: readonly ContactReaction[] = [
     catalystNeighbor: getElementByName('Sulfuric Acid').id,
     product: getElementByName('Copper Sulfate').id,
     chance: 0.08,
+    // Modest, tunable exothermic kick - roughly a third of Ice↔Water's
+    // latent heat (80) in simulate.wgsl, for scale.
     enthalpyDelta: 40,
   },
   {
@@ -36,6 +38,7 @@ export const CONTACT_REACTIONS: readonly ContactReaction[] = [
     catalystNeighbor: getElementByName('Copper').id,
     product: getElementByName('Hydrogen').id,
     chance: 0.08,
+    // Same modest exothermic kick as above.
     enthalpyDelta: 40,
   },
 ];
