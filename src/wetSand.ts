@@ -30,3 +30,31 @@ export function drierTier(elementId: number): number {
 export function diagonalSlideChance(elementId: number): number {
   return COHESION.get(elementId) ?? 1.0;
 }
+
+const SATURATED = 21;
+
+export function absorbDecision(
+  elementId: number,
+  hasWaterNeighbor: boolean,
+  roll: number,
+  chance: number,
+): { newElementId: number; consumesWater: boolean } {
+  const i = wetTierIndex(elementId);
+  const canAbsorb = i !== -1 && i < SAND_TIER_LADDER.length - 1;
+  if (canAbsorb && hasWaterNeighbor && roll < chance) {
+    return { newElementId: wetterTier(elementId), consumesWater: true };
+  }
+  return { newElementId: elementId, consumesWater: false };
+}
+
+export function dripDecision(
+  elementId: number,
+  hasEmptyBelow: boolean,
+  roll: number,
+  chance: number,
+): { newElementId: number; releasesWater: boolean } {
+  if (elementId === SATURATED && hasEmptyBelow && roll < chance) {
+    return { newElementId: drierTier(elementId), releasesWater: true };
+  }
+  return { newElementId: elementId, releasesWater: false };
+}
