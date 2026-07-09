@@ -139,3 +139,32 @@ test('generic corrosion: acid dissolves solubles — no errors', async ({ page }
   expect(pageErrors, `page errors: ${pageErrors.join('; ')}`).toEqual([]);
   expect(consoleErrors, `console errors: ${consoleErrors.join('; ')}`).toEqual([]);
 });
+
+test('phase transitions: wax melts near lava — no errors', async ({ page }) => {
+  const consoleErrors: string[] = [];
+  page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
+  const pageErrors: string[] = [];
+  page.on('pageerror', (e) => pageErrors.push(e.message));
+
+  await page.goto('/');
+  const canvas = page.locator('canvas#grid');
+  const unsupported = page.locator('.unsupported');
+  await expect(canvas.or(unsupported)).toBeVisible();
+  if (!(await canvas.isVisible())) test.skip();
+
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('no canvas box');
+  const at = (fx: number, fy: number) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy });
+  const dab = async (name: string, fx: number, fy: number) => {
+    await page.getByRole('button', { name, exact: true }).click();
+    const p = at(fx, fy); await page.mouse.move(p.x, p.y); await page.mouse.down(); await page.mouse.move(p.x + 15, p.y); await page.mouse.up();
+  };
+
+  await dab('Lava', 0.5, 0.55);   // sustained heat
+  await dab('Wax', 0.5, 0.45);    // wax on top melts to Molten Wax
+  await dab('Ice', 0.25, 0.4);    // existing chain still works
+  await page.waitForTimeout(2500);
+
+  expect(pageErrors, `page errors: ${pageErrors.join('; ')}`).toEqual([]);
+  expect(consoleErrors, `console errors: ${consoleErrors.join('; ')}`).toEqual([]);
+});
