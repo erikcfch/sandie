@@ -1,6 +1,8 @@
+import { chainCountOf, chainData, chainStartOf } from '../chains';
 import { GRID_HEIGHT, GRID_WIDTH, TICKS_PER_FRAME, WATER_SUBSTEPS, WORKGROUP_SIZE } from '../config';
 import {
   AMBIENT_TEMP as ELEMENT_AMBIENT_TEMP,
+  ELEMENTS,
   colorPalette,
   getElement,
   materialFlags,
@@ -61,6 +63,7 @@ export class Simulation {
   private readonly gridBufferB: GPUBuffer;
   private readonly paletteBuffer: GPUBuffer;
   private readonly materialsBuffer: GPUBuffer;
+  private readonly chainsBuffer: GPUBuffer;
   private readonly materialFlagsBuffer: GPUBuffer;
   private readonly reactionsBuffer: GPUBuffer;
   private readonly thresholdReactionsBuffer: GPUBuffer;
@@ -112,7 +115,13 @@ export class Simulation {
     });
 
     this.paletteBuffer = this.createStorageBuffer('palette', colorPalette());
-    this.materialsBuffer = this.createStorageBuffer('materials', materialProperties());
+    const mats = materialProperties();
+    for (const element of ELEMENTS) {
+      mats[element.id * 12 + 10] = chainStartOf(element.id);
+      mats[element.id * 12 + 11] = chainCountOf(element.id);
+    }
+    this.materialsBuffer = this.createStorageBuffer('materials', mats);
+    this.chainsBuffer = this.createStorageBuffer('chains', chainData());
     const flags = materialFlags();
     this.materialFlagsBuffer = device.createBuffer({
       label: 'material-flags',
@@ -153,6 +162,7 @@ export class Simulation {
         { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
         { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
         { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+        { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
       ],
     });
     const paintBindGroupLayout = device.createBindGroupLayout({
@@ -169,6 +179,7 @@ export class Simulation {
         { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
         { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
         { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
+        { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
       ],
     });
 
@@ -217,6 +228,7 @@ export class Simulation {
         { binding: 4, resource: { buffer: this.reactionsBuffer } },
         { binding: 5, resource: { buffer: this.thresholdReactionsBuffer } },
         { binding: 6, resource: { buffer: this.materialFlagsBuffer } },
+        { binding: 7, resource: { buffer: this.chainsBuffer } },
       ],
     });
     this.heatBindGroup = device.createBindGroup({
@@ -229,6 +241,7 @@ export class Simulation {
         { binding: 4, resource: { buffer: this.reactionsBuffer } },
         { binding: 5, resource: { buffer: this.thresholdReactionsBuffer } },
         { binding: 6, resource: { buffer: this.materialFlagsBuffer } },
+        { binding: 7, resource: { buffer: this.chainsBuffer } },
       ],
     });
     this.paintBindGroup = device.createBindGroup({
@@ -245,6 +258,7 @@ export class Simulation {
         { binding: 1, resource: { buffer: this.gridBufferA } },
         { binding: 2, resource: { buffer: this.paletteBuffer } },
         { binding: 3, resource: { buffer: this.materialsBuffer } },
+        { binding: 4, resource: { buffer: this.chainsBuffer } },
       ],
     });
 
