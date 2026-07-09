@@ -146,24 +146,31 @@ phase producing working, tested software.
 
 The enabler. Same observable behavior, now fully data-driven.
 
-- Define the `MaterialDef` schema (taxonomy axes, properties, the `flammable`
-  flag + `ignitionTemp`/`burnProduct`/`burnRate` params). Introduce the density
-  normalization (`simDensity`) and the flag-bitfield packing.
-- Expand the GPU buffers: numeric `materials` buffer + new `materialFlags: u32`
-  buffer.
+- Define the `MaterialDef` schema (taxonomy axes; the `flammable` flag +
+  `ignitionTemp`/`burnProduct`/`burnRate` params; and real scientific reference
+  values — `realDensity`, `specificHeat`, `meltingPoint`/`boilingPoint`,
+  `viscosity`) and the flag-bitfield packing.
+- Expand the GPU buffers: `materials` gains the flammability params + a new
+  `materialFlags: u32` bitfield buffer.
 - Rewrite the shader's movement class predicates (`isPowderOrLiquid`/`isLiquid`/
   `isGas`) to read `form` from `materialFlags`, and replace the bespoke
   `WOOD_IGNITE_POINT` ignition with the generic flammable rule.
-- Migrate the existing 22 materials to the schema with real-normalized values
-  and correct taxonomy/flags. Wood becomes `flammable` (ignitionTemp 300,
-  burnProduct Fire, organic); metals get `metal`/`conductive`; etc.
-- Keep everything else exactly as today: the CA water / sink / soak / cohesion /
-  gas-plume behavior, phase-transition chains, and the explicit reaction tables
-  are **untouched** in Phase 1. Only the movement class + flammability become
-  data-driven.
+- Migrate the existing 22 materials to the schema: correct taxonomy/flags (Wood
+  becomes `flammable`, ignitionTemp 300, burnProduct Fire, organic; metals get
+  `metal`/`conductive`; etc.) and record real reference values.
+- **Behavior-identical:** the values the sim actually *uses* — `density`,
+  `thermalConductivity`, `heatCapacity`, and each element's `form` (= today's
+  `category`) — are kept exactly as today, so this is a pure data-driven refactor
+  with no observable change. The real scientific values are recorded as
+  reference; *adopting* them into the sim (normalized `simDensity` into movement,
+  `specificHeat` into thermal) is a deliberate, separately-verified step in a
+  later phase, not bundled into this framework refactor. The CA water / sink /
+  soak / cohesion / gas behavior, phase chains, and explicit reaction tables are
+  untouched.
 
 **Outcome:** identical behavior (verified), but adding a liquid/gas/powder/
-flammable material is now pure data — no shader edits.
+flammable material is now pure data — no shader edits — and every material now
+carries its real scientific properties as the basis for later phases.
 
 ### Phase 2 — Generic interaction engine (separate spec/plan)
 
