@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ELEMENTS, colorPalette, getElement, getElementByName, materialProperties } from './elements';
+import { ELEMENTS, colorPalette, getElement, getElementByName, materialProperties, materialFlags } from './elements';
 
 describe('ELEMENTS table', () => {
   it('assigns each element a unique, contiguous id starting at 0', () => {
@@ -162,16 +162,16 @@ describe('colorPalette', () => {
 });
 
 describe('materialProperties', () => {
-  it('returns 4 floats (density, thermalConductivity, heatCapacity, unused) per element, indexed by element id', () => {
+  it('returns 8 floats (density, thermalConductivity, heatCapacity, ignitionTemp, burnProduct, burnRate, reserved, reserved) per element, indexed by element id', () => {
     const props = materialProperties();
     expect(props).toBeInstanceOf(Float32Array);
-    expect(props.length).toBe(ELEMENTS.length * 4);
+    expect(props.length).toBe(ELEMENTS.length * 8);
   });
 
   it('places each element density, thermalConductivity, and heatCapacity at its id offset', () => {
     const water = getElementByName('Water');
     const props = materialProperties();
-    const offset = water.id * 4;
+    const offset = water.id * 8;
     expect(props[offset]).toBeCloseTo(water.density);
     expect(props[offset + 1]).toBeCloseTo(water.thermalConductivity);
     expect(props[offset + 2]).toBeCloseTo(water.heatCapacity);
@@ -267,5 +267,74 @@ describe('wet-sand tiers', () => {
     expect(damp.density).toBeLessThan(wet.density);
     expect(wet.density).toBeLessThan(sat.density);
     for (const e of [damp, wet, sat]) expect(e.category).toBe('powder');
+  });
+});
+
+describe('material taxonomy', () => {
+  it('every element has form matching its category', () => {
+    const map: Record<string, string> = { empty: 'static', static: 'static', powder: 'powder', liquid: 'liquid', gas: 'gas' };
+    for (const e of ELEMENTS) expect(e.form).toBe(map[e.category]);
+  });
+  it('every element has phase/origin/metallic set', () => {
+    for (const e of ELEMENTS) {
+      expect(['solid', 'liquid', 'gas']).toContain(e.phase);
+      expect(['organic', 'inorganic']).toContain(e.origin);
+      expect(['metal', 'nonmetal']).toContain(e.metallic);
+    }
+  });
+  it('classifies a few materials correctly', () => {
+    expect(getElementByName('Wood').origin).toBe('organic');
+    expect(getElementByName('Copper').metallic).toBe('metal');
+    expect(getElementByName('Water').form).toBe('liquid');
+    expect(getElementByName('Sand').phase).toBe('solid');
+  });
+});
+
+describe('capabilities and reference values', () => {
+  it('only Wood is flammable in Phase 1, igniting to Fire', () => {
+    const wood = getElementByName('Wood');
+    expect(wood.flammable).toBe(true);
+    expect(wood.ignitionTemp).toBe(300);
+    expect(wood.burnProduct).toBe(getElementByName('Fire').id);
+    expect(wood.burnRate).toBe(1);
+    expect(ELEMENTS.filter((e) => e.flammable).map((e) => e.name)).toEqual(['Wood']);
+  });
+  it('acids are corrosive and copper is a conductive metal', () => {
+    for (const n of ['Sulfuric Acid (Dilute)', 'Sulfuric Acid (Very Dilute)', 'Sulfuric Acid (Concentrated)', 'Sulfuric Acid (Fuming)'])
+      expect(getElementByName(n).corrosive).toBe(true);
+    expect(getElementByName('Copper').conductive).toBe(true);
+  });
+  it('records real reference densities (ice less dense than water; copper dense)', () => {
+    expect(getElementByName('Ice').realDensity!).toBeLessThan(getElementByName('Water').realDensity!);
+    expect(getElementByName('Copper').realDensity!).toBeGreaterThan(5);
+    expect(getElementByName('Water').realDensity).toBeCloseTo(1.0, 1);
+  });
+});
+
+describe('GPU material serializers', () => {
+  it('materials buffer is 8 floats/element with unchanged sim values + flammability params', () => {
+    const data = materialProperties();
+    expect(data.length).toBe(ELEMENTS.length * 8);
+    const wood = getElementByName('Wood');
+    const o = wood.id * 8;
+    expect(data[o + 0]).toBe(wood.density);
+    expect(data[o + 1]).toBeCloseTo(wood.thermalConductivity);
+    expect(data[o + 2]).toBeCloseTo(wood.heatCapacity);
+    expect(data[o + 3]).toBe(300);
+    expect(data[o + 4]).toBe(getElementByName('Fire').id);
+    expect(data[o + 5]).toBe(1);
+    const stoneO = getElementByName('Stone').id * 8;
+    expect(data[stoneO + 3]).toBe(0);
+  });
+  it('materialFlags packs form in bits 0-1 and capabilities above', () => {
+    const flags = materialFlags();
+    expect(flags.length).toBe(ELEMENTS.length);
+    expect(flags[getElementByName('Water').id] & 3).toBe(2);
+    expect(flags[getElementByName('Sand').id] & 3).toBe(1);
+    expect(flags[getElementByName('Smoke').id] & 3).toBe(3);
+    expect(flags[getElementByName('Stone').id] & 3).toBe(0);
+    expect((flags[getElementByName('Wood').id] >> 2) & 1).toBe(1);
+    expect((flags[getElementByName('Wood').id] >> 6) & 1).toBe(1);
+    expect((flags[getElementByName('Copper').id] >> 7) & 1).toBe(1);
   });
 });

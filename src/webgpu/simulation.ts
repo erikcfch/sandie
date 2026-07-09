@@ -1,5 +1,11 @@
 import { GRID_HEIGHT, GRID_WIDTH, TICKS_PER_FRAME, WATER_SUBSTEPS, WORKGROUP_SIZE } from '../config';
-import { AMBIENT_TEMP as ELEMENT_AMBIENT_TEMP, colorPalette, getElement, materialProperties } from '../elements';
+import {
+  AMBIENT_TEMP as ELEMENT_AMBIENT_TEMP,
+  colorPalette,
+  getElement,
+  materialFlags,
+  materialProperties,
+} from '../elements';
 import { CONTACT_REACTIONS, reactionData } from '../reactions';
 import paintShaderCode from '../shaders/paint.wgsl?raw';
 import renderShaderCode from '../shaders/render.wgsl?raw';
@@ -54,6 +60,7 @@ export class Simulation {
   private readonly gridBufferB: GPUBuffer;
   private readonly paletteBuffer: GPUBuffer;
   private readonly materialsBuffer: GPUBuffer;
+  private readonly materialFlagsBuffer: GPUBuffer;
   private readonly reactionsBuffer: GPUBuffer;
   private readonly thresholdReactionsBuffer: GPUBuffer;
   private readonly simParamsBuffer: GPUBuffer;
@@ -104,6 +111,13 @@ export class Simulation {
 
     this.paletteBuffer = this.createStorageBuffer('palette', colorPalette());
     this.materialsBuffer = this.createStorageBuffer('materials', materialProperties());
+    const flags = materialFlags();
+    this.materialFlagsBuffer = device.createBuffer({
+      label: 'material-flags',
+      size: flags.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(this.materialFlagsBuffer, 0, flags);
     this.reactionsBuffer = this.createStorageBuffer('reactions', reactionData());
     this.thresholdReactionsBuffer = this.createStorageBuffer('threshold-reactions', thresholdReactionData());
 
@@ -136,6 +150,7 @@ export class Simulation {
         { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
         { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
         { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+        { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
       ],
     });
     const paintBindGroupLayout = device.createBindGroupLayout({
@@ -195,6 +210,7 @@ export class Simulation {
         { binding: 3, resource: { buffer: this.materialsBuffer } },
         { binding: 4, resource: { buffer: this.reactionsBuffer } },
         { binding: 5, resource: { buffer: this.thresholdReactionsBuffer } },
+        { binding: 6, resource: { buffer: this.materialFlagsBuffer } },
       ],
     });
     this.heatBindGroup = device.createBindGroup({
@@ -206,6 +222,7 @@ export class Simulation {
         { binding: 3, resource: { buffer: this.materialsBuffer } },
         { binding: 4, resource: { buffer: this.reactionsBuffer } },
         { binding: 5, resource: { buffer: this.thresholdReactionsBuffer } },
+        { binding: 6, resource: { buffer: this.materialFlagsBuffer } },
       ],
     });
     this.paintBindGroup = device.createBindGroup({

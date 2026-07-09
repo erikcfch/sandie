@@ -35,7 +35,7 @@ const STONE_LAVA_BOUNDARY: f32 = 700.0;
 const STONE_LAVA_LATENT: f32 = 200.0;
 
 fn heatCapacityOf(id: u32) -> f32 {
-  return materials[id].z;
+  return materials[id * 2u].z;
 }
 
 // Temperature-only decode (no element-id resolution needed for display, so
