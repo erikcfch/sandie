@@ -24,8 +24,9 @@ const EMPTY_ID = 0;
 const SIM_PARAMS_BYTES = 24; // SimParams{width, height, frame, ambientTemp, reactionCount, thresholdReactionCount}
 // One SimParams slot per block-CA dispatch that needs its own frame value:
 // TICKS_PER_FRAME movement/heat ticks (movement+heat within a tick share a
-// slot) + 1 soak pass + WATER_SUBSTEPS water-leveling passes.
-const SIM_SLOTS = TICKS_PER_FRAME + 1 + WATER_SUBSTEPS;
+// slot) + 1 soak pass + 1 corrode pass (its own slot for a distinct Margolus
+// alignment) + WATER_SUBSTEPS water-leveling passes.
+const SIM_SLOTS = TICKS_PER_FRAME + 2 + WATER_SUBSTEPS;
 
 export interface PaintInput {
   active: boolean;
@@ -76,6 +77,7 @@ export class Simulation {
   private readonly heatPipeline: GPUComputePipeline;
   private readonly waterMovementPipeline: GPUComputePipeline;
   private readonly soakPipeline: GPUComputePipeline;
+  private readonly corrodePipeline: GPUComputePipeline;
   private readonly paintPipeline: GPUComputePipeline;
   private readonly renderPipeline: GPURenderPipeline;
 
@@ -189,6 +191,10 @@ export class Simulation {
     this.soakPipeline = device.createComputePipeline({
       layout: simPipelineLayout,
       compute: { module: simModule, entryPoint: 'soak' },
+    });
+    this.corrodePipeline = device.createComputePipeline({
+      layout: simPipelineLayout,
+      compute: { module: simModule, entryPoint: 'corrode' },
     });
     this.paintPipeline = device.createComputePipeline({
       layout: paintPipelineLayout,
@@ -364,8 +370,9 @@ export class Simulation {
           readA = !readA;
         };
         dispatchSim(this.soakPipeline, TICKS_PER_FRAME);
+        dispatchSim(this.corrodePipeline, TICKS_PER_FRAME + 1);
         for (let s = 0; s < WATER_SUBSTEPS; s++) {
-          dispatchSim(this.waterMovementPipeline, TICKS_PER_FRAME + 1 + s);
+          dispatchSim(this.waterMovementPipeline, TICKS_PER_FRAME + 2 + s);
         }
 
         this.frame += SIM_SLOTS;
