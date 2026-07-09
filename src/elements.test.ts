@@ -162,16 +162,16 @@ describe('colorPalette', () => {
 });
 
 describe('materialProperties', () => {
-  it('returns 8 floats (density, thermalConductivity, heatCapacity, ignitionTemp, burnProduct, burnRate, reserved, reserved) per element, indexed by element id', () => {
+  it('returns 12 floats (density, thermalConductivity, heatCapacity, ignitionTemp, burnProduct, burnRate, corrosiveStrength, solubility, dissolvedProduct, weakensTo, reserved, reserved) per element, indexed by element id', () => {
     const props = materialProperties();
     expect(props).toBeInstanceOf(Float32Array);
-    expect(props.length).toBe(ELEMENTS.length * 8);
+    expect(props.length).toBe(ELEMENTS.length * 12);
   });
 
   it('places each element density, thermalConductivity, and heatCapacity at its id offset', () => {
     const water = getElementByName('Water');
     const props = materialProperties();
-    const offset = water.id * 8;
+    const offset = water.id * 12;
     expect(props[offset]).toBeCloseTo(water.density);
     expect(props[offset + 1]).toBeCloseTo(water.thermalConductivity);
     expect(props[offset + 2]).toBeCloseTo(water.heatCapacity);
@@ -312,18 +312,18 @@ describe('capabilities and reference values', () => {
 });
 
 describe('GPU material serializers', () => {
-  it('materials buffer is 8 floats/element with unchanged sim values + flammability params', () => {
+  it('materials buffer is 12 floats/element with unchanged sim values + flammability params', () => {
     const data = materialProperties();
-    expect(data.length).toBe(ELEMENTS.length * 8);
+    expect(data.length).toBe(ELEMENTS.length * 12);
     const wood = getElementByName('Wood');
-    const o = wood.id * 8;
+    const o = wood.id * 12;
     expect(data[o + 0]).toBe(wood.density);
     expect(data[o + 1]).toBeCloseTo(wood.thermalConductivity);
     expect(data[o + 2]).toBeCloseTo(wood.heatCapacity);
     expect(data[o + 3]).toBe(300);
     expect(data[o + 4]).toBe(getElementByName('Fire').id);
     expect(data[o + 5]).toBe(1);
-    const stoneO = getElementByName('Stone').id * 8;
+    const stoneO = getElementByName('Stone').id * 12;
     expect(data[stoneO + 3]).toBe(0);
   });
   it('materialFlags packs form in bits 0-1 and capabilities above', () => {
@@ -366,5 +366,23 @@ describe('corrosion demo materials', () => {
     expect(lime.dissolvedProduct).toBe(getElementByName('CO₂').id);
     expect(salt.dissolvedProduct).toBe(0);
     expect(getElementByName('CO₂').form).toBe('gas');
+  });
+});
+
+describe('materials serializer with corrosion params', () => {
+  it('is 12 floats/element with corrosion params in the documented slots', () => {
+    const data = materialProperties();
+    expect(data.length).toBe(ELEMENTS.length * 12);
+    const conc = getElementByName('Sulfuric Acid (Concentrated)');
+    const o = conc.id * 12;
+    expect(data[o + 0]).toBe(conc.density);
+    expect(data[o + 6]).toBe(3);            // corrosiveStrength
+    expect(data[o + 9]).toBe(getElementByName('Sulfuric Acid (Dilute)').id); // weakensTo
+    const lime = getElementByName('Limestone');
+    const lo = lime.id * 12;
+    expect(data[lo + 7]).toBe(2);           // solubility
+    expect(data[lo + 8]).toBe(getElementByName('CO₂').id); // dissolvedProduct
+    const stone = getElementByName('Stone');
+    expect(data[stone.id * 12 + 9]).toBe(stone.id); // no weakensTo -> own id
   });
 });

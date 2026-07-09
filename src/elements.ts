@@ -105,17 +105,21 @@ export function getElementByName(name: string): ElementDef {
 }
 
 export function materialProperties(): Float32Array {
-  const data = new Float32Array(ELEMENTS.length * 8);
+  const data = new Float32Array(ELEMENTS.length * 12);
   for (const element of ELEMENTS) {
-    const offset = element.id * 8;
-    data[offset + 0] = element.density;             // sim density (unchanged)
+    const offset = element.id * 12;
+    data[offset + 0] = element.density;
     data[offset + 1] = element.thermalConductivity;
     data[offset + 2] = element.heatCapacity;
     data[offset + 3] = element.ignitionTemp ?? 0;
     data[offset + 4] = element.burnProduct ?? 0;
     data[offset + 5] = element.burnRate ?? 0;
-    data[offset + 6] = 0; // reserved (Phase 2: corrosiveStrength)
-    data[offset + 7] = 0; // reserved (Phase 2: solubility)
+    data[offset + 6] = element.corrosiveStrength ?? 0;
+    data[offset + 7] = element.solubility ?? 0;
+    data[offset + 8] = element.dissolvedProduct ?? 0;
+    data[offset + 9] = element.weakensTo ?? element.id; // self = does not deplete
+    data[offset + 10] = 0;
+    data[offset + 11] = 0;
   }
   return data;
 }
