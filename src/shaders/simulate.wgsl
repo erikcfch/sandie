@@ -318,6 +318,83 @@ fn waterMovement(@builtin(global_invocation_id) gid: vec3<u32>) {
   writeBuf[idxA] = a; writeBuf[idxB] = b; writeBuf[idxC] = c; writeBuf[idxD] = d;
 }
 
+const ABSORB_CHANCE: f32 = 0.08;
+const DRIP_CHANCE: f32 = 0.10;
+
+fn isSandTier(id: u32) -> bool {
+  return id == SAND || id == DAMP_SAND || id == WET_SAND || id == SATURATED_SAND;
+}
+fn wetterTier(id: u32) -> u32 {
+  if (id == SAND) { return DAMP_SAND; }
+  if (id == DAMP_SAND) { return WET_SAND; }
+  if (id == WET_SAND) { return SATURATED_SAND; }
+  return id; // saturated stays
+}
+
+// Absorb one adjacent Water into a sand-tier cell (Water->Empty, sand->wetter),
+// and let Saturated Sand drip one Water into an Empty cell below. Both are
+// two-cell transforms, so they run in this block-owned pass rather than the
+// per-cell heat() reaction loop. Enthalpy carries with each cell unchanged.
+@compute @workgroup_size(8, 8)
+fn soak(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let width = i32(params.width);
+  let height = i32(params.height);
+  let x = i32(gid.x);
+  let y = i32(gid.y);
+  if (x >= width || y >= height) { return; }
+  let selfIndex = cellIndex(x, y, width);
+
+  let alignment = params.frame % 4u;
+  let ox = i32(alignment & 1u);
+  let oy = i32((alignment >> 1u) & 1u);
+  if (x < ox || y < oy) { writeBuf[selfIndex] = readBuf[selfIndex]; return; }
+  let blockX = x - ((x - ox) % 2);
+  let blockY = y - ((y - oy) % 2);
+  if (blockX + 1 >= width || blockY + 1 >= height) { writeBuf[selfIndex] = readBuf[selfIndex]; return; }
+  if (x != blockX || y != blockY) { return; }
+
+  let idxA = cellIndex(blockX, blockY, width);
+  let idxB = cellIndex(blockX + 1, blockY, width);
+  let idxC = cellIndex(blockX, blockY + 1, width);
+  let idxD = cellIndex(blockX + 1, blockY + 1, width);
+  var a = readBuf[idxA]; var b = readBuf[idxB]; var c = readBuf[idxC]; var d = readBuf[idxD];
+
+  let roll = f32(hash(u32(blockX), u32(blockY), params.frame) & 0xffffu) / 65536.0;
+
+  // --- Absorb: at most one sand<->water pair in this block (a-b, a-c, b-d, c-d).
+  if (roll < ABSORB_CHANCE) {
+    if (isSandTier(a.elementId) && a.elementId != SATURATED_SAND && b.elementId == WATER) {
+      a.elementId = wetterTier(a.elementId); b = Cell(EMPTY, b.enthalpy);
+    } else if (isSandTier(b.elementId) && b.elementId != SATURATED_SAND && a.elementId == WATER) {
+      b.elementId = wetterTier(b.elementId); a = Cell(EMPTY, a.enthalpy);
+    } else if (isSandTier(a.elementId) && a.elementId != SATURATED_SAND && c.elementId == WATER) {
+      a.elementId = wetterTier(a.elementId); c = Cell(EMPTY, c.enthalpy);
+    } else if (isSandTier(c.elementId) && c.elementId != SATURATED_SAND && a.elementId == WATER) {
+      c.elementId = wetterTier(c.elementId); a = Cell(EMPTY, a.enthalpy);
+    } else if (isSandTier(b.elementId) && b.elementId != SATURATED_SAND && d.elementId == WATER) {
+      b.elementId = wetterTier(b.elementId); d = Cell(EMPTY, d.enthalpy);
+    } else if (isSandTier(d.elementId) && d.elementId != SATURATED_SAND && b.elementId == WATER) {
+      d.elementId = wetterTier(d.elementId); b = Cell(EMPTY, b.enthalpy);
+    } else if (isSandTier(c.elementId) && c.elementId != SATURATED_SAND && d.elementId == WATER) {
+      c.elementId = wetterTier(c.elementId); d = Cell(EMPTY, d.enthalpy);
+    } else if (isSandTier(d.elementId) && d.elementId != SATURATED_SAND && c.elementId == WATER) {
+      d.elementId = wetterTier(d.elementId); c = Cell(EMPTY, c.enthalpy);
+    }
+  }
+
+  // --- Drip: saturated sand over an empty cell (a over c, b over d) releases water.
+  let dripRoll = f32(hash(u32(blockX) + 7u, u32(blockY) + 13u, params.frame) & 0xffffu) / 65536.0;
+  if (dripRoll < DRIP_CHANCE) {
+    if (a.elementId == SATURATED_SAND && c.elementId == EMPTY) {
+      a.elementId = WET_SAND; c = Cell(WATER, c.enthalpy);
+    } else if (b.elementId == SATURATED_SAND && d.elementId == EMPTY) {
+      b.elementId = WET_SAND; d = Cell(WATER, d.enthalpy);
+    }
+  }
+
+  writeBuf[idxA] = a; writeBuf[idxB] = b; writeBuf[idxC] = c; writeBuf[idxD] = d;
+}
+
 const CONDUCTION_RATE: f32 = 0.1;
 const AMBIENT_DRIFT_RATE: f32 = 0.003;
 const FIRE_DECAY_CHANCE: f32 = 0.05;
