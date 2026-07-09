@@ -125,6 +125,15 @@ fn isLiquid(id: u32) -> bool {
   return id == WATER || id == LAVA || id == ACID || id == ACID_VERY_DILUTE || id == ACID_CONCENTRATED || id == ACID_FUMING;
 }
 
+// Cohesion: wetter sand resists sliding diagonally off a pile (mirrors
+// src/wetSand.ts diagonalSlideChance). 1.0 = always slides (dry/other).
+fn diagonalSlideChance(id: u32) -> f32 {
+  if (id == DAMP_SAND) { return 0.6; }
+  if (id == WET_SAND) { return 0.3; }
+  if (id == SATURATED_SAND) { return 0.12; }
+  return 1.0;
+}
+
 fn cellIndex(x: i32, y: i32, width: i32) -> u32 {
   return u32(y * width + x);
 }
@@ -229,11 +238,14 @@ fn movement(@builtin(global_invocation_id) gid: vec3<u32>) {
   }
 
   // 2. Diagonal, only for a column that didn't just resolve straight down
-  // (so a cell moves at most once per tick).
-  if (!movedLeft && shouldSwapVertical(a.elementId, d.elementId)) {
+  // (so a cell moves at most once per tick), gated by cohesion so wet sand
+  // clumps instead of sliding.
+  let rollAD = f32(hash(u32(blockX), u32(blockY), params.frame) & 0xffffu) / 65536.0;
+  if (!movedLeft && shouldSwapVertical(a.elementId, d.elementId) && rollAD < diagonalSlideChance(a.elementId)) {
     let tmp = a; a = d; d = tmp;
   }
-  if (!movedRight && shouldSwapVertical(b.elementId, c.elementId)) {
+  let rollBC = f32(hash(u32(blockX + 1), u32(blockY), params.frame) & 0xffffu) / 65536.0;
+  if (!movedRight && shouldSwapVertical(b.elementId, c.elementId) && rollBC < diagonalSlideChance(b.elementId)) {
     let tmp = b; b = c; c = tmp;
   }
 
