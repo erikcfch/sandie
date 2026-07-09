@@ -108,3 +108,34 @@ test('material system: elements still behave and wood ignites — no errors', as
   expect(pageErrors, `page errors: ${pageErrors.join('; ')}`).toEqual([]);
   expect(consoleErrors, `console errors: ${consoleErrors.join('; ')}`).toEqual([]);
 });
+
+test('generic corrosion: acid dissolves solubles — no errors', async ({ page }) => {
+  const consoleErrors: string[] = [];
+  page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
+  const pageErrors: string[] = [];
+  page.on('pageerror', (e) => pageErrors.push(e.message));
+
+  await page.goto('/');
+  const canvas = page.locator('canvas#grid');
+  const unsupported = page.locator('.unsupported');
+  await expect(canvas.or(unsupported)).toBeVisible();
+  if (!(await canvas.isVisible())) test.skip();
+
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('no canvas box');
+  const at = (fx: number, fy: number) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy });
+  // chem materials/acids carry a formula -> non-exact (substring) name match.
+  const dab = async (name: string, fx: number, fy: number) => {
+    await page.getByRole('button', { name }).first().click();
+    const p = at(fx, fy); await page.mouse.move(p.x, p.y); await page.mouse.down(); await page.mouse.move(p.x + 15, p.y); await page.mouse.up();
+  };
+
+  // A limestone bed with concentrated acid on top: exercises dissolve + CO2 fizz.
+  await dab('Limestone', 0.5, 0.6);
+  await dab('Sulfuric Acid (Concentrated)', 0.5, 0.45);
+  await dab('Salt', 0.25, 0.6);
+  await page.waitForTimeout(2500);
+
+  expect(pageErrors, `page errors: ${pageErrors.join('; ')}`).toEqual([]);
+  expect(consoleErrors, `console errors: ${consoleErrors.join('; ')}`).toEqual([]);
+});
