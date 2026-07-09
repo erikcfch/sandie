@@ -6,6 +6,7 @@
 //   15=Sulfuric Acid (Very Dilute) 16=Sulfuric Acid (Concentrated)
 //   17=Sulfuric Acid (Fuming) 18=Sulfur Dioxide
 //   19=Damp Sand 20=Wet Sand 21=Saturated Sand
+//   22=Salt 23=Limestone 24=Rust 25=CO₂
 //
 // Each grid cell is a Cell{elementId, enthalpy} struct. Enthalpy (not raw
 // temperature) is the stored quantity - see the "Latent heat" section below

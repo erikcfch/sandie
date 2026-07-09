@@ -352,3 +352,19 @@ describe('acid corrosion params', () => {
     expect(acid('Sulfuric Acid (Fuming)').weakensTo).toBe(acid('Sulfuric Acid (Concentrated)').id);
   });
 });
+
+describe('corrosion demo materials', () => {
+  it('adds Salt/Limestone/Rust as solubles with ascending resistance', () => {
+    const salt = getElementByName('Salt');
+    const lime = getElementByName('Limestone');
+    const rust = getElementByName('Rust');
+    expect([salt.id, lime.id, rust.id, getElementByName('CO₂').id]).toEqual([22, 23, 24, 25]);
+    for (const e of [salt, lime, rust]) { expect(e.soluble).toBe(true); expect(e.form).toBe('powder'); }
+    expect(salt.solubility).toBe(1);
+    expect(lime.solubility).toBe(2);
+    expect(rust.solubility).toBe(3);
+    expect(lime.dissolvedProduct).toBe(getElementByName('CO₂').id);
+    expect(salt.dissolvedProduct).toBe(0);
+    expect(getElementByName('CO₂').form).toBe('gas');
+  });
+});
