@@ -269,3 +269,23 @@ describe('wet-sand tiers', () => {
     for (const e of [damp, wet, sat]) expect(e.category).toBe('powder');
   });
 });
+
+describe('material taxonomy', () => {
+  it('every element has form matching its category', () => {
+    const map: Record<string, string> = { empty: 'static', static: 'static', powder: 'powder', liquid: 'liquid', gas: 'gas' };
+    for (const e of ELEMENTS) expect(e.form).toBe(map[e.category]);
+  });
+  it('every element has phase/origin/metallic set', () => {
+    for (const e of ELEMENTS) {
+      expect(['solid', 'liquid', 'gas']).toContain(e.phase);
+      expect(['organic', 'inorganic']).toContain(e.origin);
+      expect(['metal', 'nonmetal']).toContain(e.metallic);
+    }
+  });
+  it('classifies a few materials correctly', () => {
+    expect(getElementByName('Wood').origin).toBe('organic');
+    expect(getElementByName('Copper').metallic).toBe('metal');
+    expect(getElementByName('Water').form).toBe('liquid');
+    expect(getElementByName('Sand').phase).toBe('solid');
+  });
+});
