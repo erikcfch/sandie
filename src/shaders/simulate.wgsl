@@ -73,6 +73,7 @@ struct SimParams {
 // - 1 vec4 per reaction: (reactant, minTemperature, product, chance).
 @group(0) @binding(5) var<storage, read> thresholdReactions: array<vec4<f32>>;
 @group(0) @binding(6) var<storage, read> materialFlags: array<u32>;
+@group(0) @binding(7) var<storage, read> chains: array<vec4<f32>>;
 
 const EMPTY: u32 = 0u;
 const STONE: u32 = 1u;
@@ -114,6 +115,8 @@ fn corrosiveStrengthOf(id: u32) -> f32 { return materials[id * 3u + 1u].z; }
 fn solubilityOf(id: u32) -> f32 { return materials[id * 3u + 1u].w; }
 fn dissolvedProductOf(id: u32) -> u32 { return u32(materials[id * 3u + 2u].x); }
 fn weakensToOf(id: u32) -> u32 { return u32(materials[id * 3u + 2u].y); }
+fn chainStartOf(id: u32) -> u32 { return u32(materials[id * 3u + 2u].z); }
+fn chainCountOf(id: u32) -> u32 { return u32(materials[id * 3u + 2u].w); }
 
 const FORM_POWDER: u32 = 1u;
 const FORM_LIQUID: u32 = 2u;
@@ -364,122 +367,82 @@ const WEIGHT_BELOW: f32 = 1.5;
 const WEIGHT_ABOVE: f32 = 0.5;
 const WEIGHT_SIDE: f32 = 1.0;
 
-// Phase-transition boundary temps and latent heats - must stay in sync
-// with src/phaseTransitions.ts.
-const ICE_WATER_BOUNDARY: f32 = 0.0;
-const ICE_WATER_LATENT: f32 = 80.0;
-const WATER_STEAM_BOUNDARY: f32 = 100.0;
-const WATER_STEAM_LATENT: f32 = 540.0;
-const STONE_LAVA_BOUNDARY: f32 = 700.0;
-const STONE_LAVA_LATENT: f32 = 200.0;
-
-fn isWaterFamily(id: u32) -> bool {
-  return id == ICE || id == WATER || id == STEAM;
-}
-
-fn isLavaFamily(id: u32) -> bool {
-  return id == STONE || id == LAVA;
-}
-
 struct ThermalResult {
   temperature: f32,
   elementId: u32,
 }
 
-// Ice(6) <-> Water(3) <-> Steam(8). Hand-unrolled port of thermal.ts's
-// generic chain-walk for this specific 3-segment chain.
-fn waterChainFromEnthalpy(currentElementId: u32, enthalpy: f32) -> ThermalResult {
-  let iceCap = heatCapacityOf(ICE);
-  let waterCap = heatCapacityOf(WATER);
-  let steamCap = heatCapacityOf(STEAM);
-  let plateau1Start = iceCap * ICE_WATER_BOUNDARY;
-  let plateau1End = plateau1Start + ICE_WATER_LATENT;
-  let plateau2Start = plateau1End + waterCap * (WATER_STEAM_BOUNDARY - ICE_WATER_BOUNDARY);
-  let plateau2End = plateau2Start + WATER_STEAM_LATENT;
-
-  if (enthalpy < plateau1Start) {
-    return ThermalResult(enthalpy / iceCap, ICE);
-  }
-  if (enthalpy < plateau1End) {
-    return ThermalResult(ICE_WATER_BOUNDARY, select(ICE, WATER, currentElementId == WATER));
-  }
-  if (enthalpy < plateau2Start) {
-    return ThermalResult(ICE_WATER_BOUNDARY + (enthalpy - plateau1End) / waterCap, WATER);
-  }
-  if (enthalpy < plateau2End) {
-    return ThermalResult(WATER_STEAM_BOUNDARY, select(WATER, STEAM, currentElementId == STEAM));
-  }
-  return ThermalResult(WATER_STEAM_BOUNDARY + (enthalpy - plateau2End) / steamCap, STEAM);
-}
-
-// Stone(1) <-> Lava(7).
-fn lavaChainFromEnthalpy(currentElementId: u32, enthalpy: f32) -> ThermalResult {
-  let stoneCap = heatCapacityOf(STONE);
-  let lavaCap = heatCapacityOf(LAVA);
-  let plateauStart = stoneCap * STONE_LAVA_BOUNDARY;
-  let plateauEnd = plateauStart + STONE_LAVA_LATENT;
-
-  if (enthalpy < plateauStart) {
-    return ThermalResult(enthalpy / stoneCap, STONE);
-  }
-  if (enthalpy < plateauEnd) {
-    return ThermalResult(STONE_LAVA_BOUNDARY, select(STONE, LAVA, currentElementId == LAVA));
-  }
-  return ThermalResult(STONE_LAVA_BOUNDARY + (enthalpy - plateauEnd) / lavaCap, LAVA);
-}
-
+// Generic data-driven chain walk: mirrors src/thermal.ts's
+// temperatureAndElementFromEnthalpy over the `chains` buffer (coldest->
+// hottest vec4 segments of (segmentElementId, heatCapacity,
+// boundaryTempAbove, latentHeatAbove) per element's chain, from
+// src/chains.ts / src/phaseTransitions.ts). `currentElementId` disambiguates
+// which side of a latent-heat plateau a cell is on while its enthalpy is
+// inside that plateau's band (hysteresis: it stays whichever phase it
+// currently is until enthalpy fully clears the band in either direction).
 fn thermalFromEnthalpy(currentElementId: u32, enthalpy: f32) -> ThermalResult {
-  if (isWaterFamily(currentElementId)) {
-    return waterChainFromEnthalpy(currentElementId, enthalpy);
+  let count = chainCountOf(currentElementId);
+  if (count == 0u) {
+    return ThermalResult(enthalpy / heatCapacityOf(currentElementId), currentElementId);
   }
-  if (isLavaFamily(currentElementId)) {
-    return lavaChainFromEnthalpy(currentElementId, enthalpy);
+  let start = chainStartOf(currentElementId);
+  var prevBoundaryTemp = 0.0;
+  var enthalpyAtPrev = 0.0;
+  for (var i = 0u; i < count; i = i + 1u) {
+    let seg = chains[start + i];
+    let segCap = seg.y;
+    if (i < count - 1u) {
+      let boundaryTemp = seg.z;
+      let latent = seg.w;
+      let plateauStart = enthalpyAtPrev + segCap * (boundaryTemp - prevBoundaryTemp);
+      let plateauEnd = plateauStart + latent;
+      if (enthalpy < plateauStart) {
+        return ThermalResult(prevBoundaryTemp + (enthalpy - enthalpyAtPrev) / segCap, u32(seg.x));
+      }
+      if (enthalpy < plateauEnd) {
+        let nextElem = u32(chains[start + i + 1u].x);
+        let resultElem = select(u32(seg.x), nextElem, currentElementId == nextElem);
+        return ThermalResult(boundaryTemp, resultElem);
+      }
+      prevBoundaryTemp = boundaryTemp;
+      enthalpyAtPrev = plateauEnd;
+    } else {
+      return ThermalResult(prevBoundaryTemp + (enthalpy - enthalpyAtPrev) / segCap, u32(seg.x));
+    }
   }
   return ThermalResult(enthalpy / heatCapacityOf(currentElementId), currentElementId);
 }
 
-// Inverse of waterChainFromEnthalpy: encodes a temperature as enthalpy
-// consistent with the water chain's plateau structure.
-fn waterChainEnthalpyForTemperature(temperature: f32) -> f32 {
-  let waterCap = heatCapacityOf(WATER);
-  let steamCap = heatCapacityOf(STEAM);
-  let plateau1End = heatCapacityOf(ICE) * ICE_WATER_BOUNDARY + ICE_WATER_LATENT;
-  let plateau2End = plateau1End + waterCap * (WATER_STEAM_BOUNDARY - ICE_WATER_BOUNDARY) + WATER_STEAM_LATENT;
-
-  if (temperature <= ICE_WATER_BOUNDARY) {
-    return heatCapacityOf(ICE) * temperature;
-  }
-  if (temperature <= WATER_STEAM_BOUNDARY) {
-    return plateau1End + waterCap * (temperature - ICE_WATER_BOUNDARY);
-  }
-  return plateau2End + steamCap * (temperature - WATER_STEAM_BOUNDARY);
-}
-
-// Inverse of lavaChainFromEnthalpy: encodes a temperature as enthalpy
-// consistent with the Stone<->Lava plateau structure.
-fn lavaChainEnthalpyForTemperature(temperature: f32) -> f32 {
-  let lavaCap = heatCapacityOf(LAVA);
-  let plateauEnd = heatCapacityOf(STONE) * STONE_LAVA_BOUNDARY + STONE_LAVA_LATENT;
-
-  if (temperature <= STONE_LAVA_BOUNDARY) {
-    return heatCapacityOf(STONE) * temperature;
-  }
-  return plateauEnd + lavaCap * (temperature - STONE_LAVA_BOUNDARY);
-}
-
 // Encodes `temperature` as enthalpy consistent with `targetElementId`'s
-// family. Used when a reaction changes a cell's elementId outright (Wood ->
-// Fire, Fire -> Steam, Lava -> Obsidian) so the pre-reaction temperature
-// carries over continuously, instead of the pre-reaction enthalpy getting
-// reinterpreted under the new element's (possibly very different)
-// heatCapacity - which would silently jump the temperature (see e.g. Lava's
-// heatCapacity of 1.0 vs Obsidian's 0.8).
+// chain (inverse of thermalFromEnthalpy). Used when a reaction changes a
+// cell's elementId outright (Wood -> Fire, Fire -> Steam, Lava -> Obsidian)
+// so the pre-reaction temperature carries over continuously, instead of the
+// pre-reaction enthalpy getting reinterpreted under the new element's
+// (possibly very different) heatCapacity - which would silently jump the
+// temperature (see e.g. Lava's heatCapacity of 1.0 vs Obsidian's 0.8).
 fn enthalpyForNewElement(temperature: f32, targetElementId: u32) -> f32 {
-  if (isWaterFamily(targetElementId)) {
-    return waterChainEnthalpyForTemperature(temperature);
+  let count = chainCountOf(targetElementId);
+  if (count == 0u) {
+    return temperature * heatCapacityOf(targetElementId);
   }
-  if (isLavaFamily(targetElementId)) {
-    return lavaChainEnthalpyForTemperature(temperature);
+  let start = chainStartOf(targetElementId);
+  var prevBoundaryTemp = 0.0;
+  var enthalpyAtPrev = 0.0;
+  for (var i = 0u; i < count; i = i + 1u) {
+    let seg = chains[start + i];
+    let segCap = seg.y;
+    if (i < count - 1u) {
+      let boundaryTemp = seg.z;
+      let latent = seg.w;
+      if (temperature <= boundaryTemp) {
+        return enthalpyAtPrev + segCap * (temperature - prevBoundaryTemp);
+      }
+      let plateauStart = enthalpyAtPrev + segCap * (boundaryTemp - prevBoundaryTemp);
+      prevBoundaryTemp = boundaryTemp;
+      enthalpyAtPrev = plateauStart + latent;
+    } else {
+      return enthalpyAtPrev + segCap * (temperature - prevBoundaryTemp);
+    }
   }
   return temperature * heatCapacityOf(targetElementId);
 }
