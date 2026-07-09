@@ -94,6 +94,9 @@ const SULFUR_DIOXIDE: u32 = 18u;
 const DAMP_SAND: u32 = 19u;
 const WET_SAND: u32 = 20u;
 const SATURATED_SAND: u32 = 21u;
+// Per-tick chance a gas cell spreads sideways. < 1 so gas rises as a plume
+// instead of fanning flat every tick. Tune visually.
+const GAS_DISPERSE_CHANCE: f32 = 0.25;
 const NO_NEIGHBOR: u32 = 0xffffffffu;
 // Sentinel for "no minimum temperature gate" written by reactions.ts's
 // reactionData() - must stay in sync with its NO_MIN_TEMPERATURE export.
@@ -241,19 +244,26 @@ fn movement(@builtin(global_invocation_id) gid: vec3<u32>) {
   // (so a cell moves at most once per tick), gated by cohesion so wet sand
   // clumps instead of sliding.
   let rollAD = f32(hash(u32(blockX), u32(blockY), params.frame) & 0xffffu) / 65536.0;
-  if (!movedLeft && shouldSwapVertical(a.elementId, d.elementId) && rollAD < diagonalSlideChance(a.elementId)) {
+  let gateAD = select(diagonalSlideChance(a.elementId), 0.5, isGas(d.elementId) && a.elementId == EMPTY);
+  if (!movedLeft && shouldSwapVertical(a.elementId, d.elementId) && rollAD < gateAD) {
     let tmp = a; a = d; d = tmp;
   }
   let rollBC = f32(hash(u32(blockX + 1), u32(blockY), params.frame) & 0xffffu) / 65536.0;
-  if (!movedRight && shouldSwapVertical(b.elementId, c.elementId) && rollBC < diagonalSlideChance(b.elementId)) {
+  let gateBC = select(diagonalSlideChance(b.elementId), 0.5, isGas(c.elementId) && b.elementId == EMPTY);
+  if (!movedRight && shouldSwapVertical(b.elementId, c.elementId) && rollBC < gateBC) {
     let tmp = b; b = c; c = tmp;
   }
 
-  // 3. Horizontal spread, each row independently.
-  if (shouldSwapHorizontal(a.elementId, b.elementId)) {
+  // 3. Horizontal spread. Gas disperses sideways only occasionally so it rises
+  // as a plume; liquids and other spreads are unchanged.
+  let hRollAB = f32(hash(u32(blockX + 31u), u32(blockY + 17u), params.frame) & 0xffffu) / 65536.0;
+  let gasAB = isGas(a.elementId) || isGas(b.elementId);
+  if ((!gasAB || hRollAB < GAS_DISPERSE_CHANCE) && shouldSwapHorizontal(a.elementId, b.elementId)) {
     let tmp = a; a = b; b = tmp;
   }
-  if (shouldSwapHorizontal(c.elementId, d.elementId)) {
+  let hRollCD = f32(hash(u32(blockX + 53u), u32(blockY + 71u), params.frame) & 0xffffu) / 65536.0;
+  let gasCD = isGas(c.elementId) || isGas(d.elementId);
+  if ((!gasCD || hRollCD < GAS_DISPERSE_CHANCE) && shouldSwapHorizontal(c.elementId, d.elementId)) {
     let tmp = c; c = d; d = tmp;
   }
 
