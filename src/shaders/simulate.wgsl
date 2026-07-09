@@ -71,6 +71,7 @@ struct SimParams {
 // src/thresholdReactions.ts's THRESHOLD_REACTIONS (see thresholdReactionData())
 // - 1 vec4 per reaction: (reactant, minTemperature, product, chance).
 @group(0) @binding(5) var<storage, read> thresholdReactions: array<vec4<f32>>;
+@group(0) @binding(6) var<storage, read> materialFlags: array<u32>;
 
 const EMPTY: u32 = 0u;
 const STONE: u32 = 1u;
@@ -102,30 +103,31 @@ const NO_NEIGHBOR: u32 = 0xffffffffu;
 // reactionData() - must stay in sync with its NO_MIN_TEMPERATURE export.
 const NO_MIN_TEMPERATURE: f32 = -999.0;
 
-fn density(id: u32) -> f32 {
-  return materials[id].x;
-}
+fn density(id: u32) -> f32 { return materials[id * 2u].x; }
+fn conductivityOf(id: u32) -> f32 { return materials[id * 2u].y; }
+fn heatCapacityOf(id: u32) -> f32 { return materials[id * 2u].z; }
+fn ignitionTempOf(id: u32) -> f32 { return materials[id * 2u].w; }
+fn burnProductOf(id: u32) -> u32 { return u32(materials[id * 2u + 1u].x); }
+fn burnRateOf(id: u32) -> f32 { return materials[id * 2u + 1u].y; }
 
-fn conductivityOf(id: u32) -> f32 {
-  return materials[id].y;
-}
-
-fn heatCapacityOf(id: u32) -> f32 {
-  return materials[id].z;
-}
+const FORM_POWDER: u32 = 1u;
+const FORM_LIQUID: u32 = 2u;
+const FORM_GAS: u32 = 3u;
+const FLAMMABLE_BIT: u32 = 4u; // 1u << 2u
+fn formOf(id: u32) -> u32 { return materialFlags[id] & 3u; }
+fn isFlammable(id: u32) -> bool { return (materialFlags[id] & FLAMMABLE_BIT) != 0u; }
 
 fn isPowderOrLiquid(id: u32) -> bool {
-  return id == SAND || id == WATER || id == LAVA || id == ACID || id == COPPER_SULFATE
-      || id == ACID_VERY_DILUTE || id == ACID_CONCENTRATED || id == ACID_FUMING
-      || id == DAMP_SAND || id == WET_SAND || id == SATURATED_SAND;
+  let f = formOf(id);
+  return f == FORM_POWDER || f == FORM_LIQUID;
 }
 
 fn isGas(id: u32) -> bool {
-  return id == SMOKE || id == STEAM || id == FIRE || id == HYDROGEN || id == SULFUR_DIOXIDE;
+  return formOf(id) == FORM_GAS;
 }
 
 fn isLiquid(id: u32) -> bool {
-  return id == WATER || id == LAVA || id == ACID || id == ACID_VERY_DILUTE || id == ACID_CONCENTRATED || id == ACID_FUMING;
+  return formOf(id) == FORM_LIQUID;
 }
 
 // Cohesion: wetter sand resists sliding diagonally off a pile (mirrors
@@ -338,7 +340,6 @@ fn wetterTier(id: u32) -> u32 {
 const CONDUCTION_RATE: f32 = 0.1;
 const AMBIENT_DRIFT_RATE: f32 = 0.003;
 const FIRE_DECAY_CHANCE: f32 = 0.05;
-const WOOD_IGNITE_POINT: f32 = 300.0;
 
 // Data-driven contact reactions (Lava+Water->Obsidian, and any Chem-category
 // reactions) are handled generically in heat() via the `reactions` buffer -
@@ -634,9 +635,11 @@ fn heat(@builtin(global_invocation_id) gid: vec3<u32>) {
   // or a THRESHOLD_REACTIONS entry (src/thresholdReactions.ts) with reactant
   // WOOD or FIRE would never be evaluated - it would be silently skipped,
   // not an error.
-  if (here.elementId == WOOD && result.temperature > WOOD_IGNITE_POINT) {
-    result.elementId = FIRE;
-    newEnthalpy = enthalpyForNewElement(result.temperature, FIRE);
+  let burnRoll = f32(hash(u32(x), u32(y), params.frame) & 0xffffu) / 65536.0;
+  if (isFlammable(here.elementId) && result.temperature > ignitionTempOf(here.elementId) && burnRoll < burnRateOf(here.elementId)) {
+    let burnProduct = burnProductOf(here.elementId);
+    result.elementId = burnProduct;
+    newEnthalpy = enthalpyForNewElement(result.temperature, burnProduct);
   } else if (here.elementId == FIRE) {
     if (touchingWaterOrSteam) {
       result.elementId = STEAM;
