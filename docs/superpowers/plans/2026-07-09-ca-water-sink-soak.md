@@ -436,6 +436,67 @@ git commit -m "Add wet-sand cohesion: wetter sand piles steeper"
 
 ---
 
+### Task 6b: Natural gas dispersion
+
+Fixes a pre-existing baseline issue (diagnosed via in-browser testing): a rising gas blob splits into two symmetric streams that diverge to the corners instead of rising as a plume. Cause — the crossed-diagonal swap that makes falling powder *converge* into a pile makes rising gas *diverge*; the fully-deterministic diagonal makes the split perfectly symmetric, and horizontal spread (every tick) outpaces the alignment-gated rise. Fix: randomize the gas diagonal rise (50%) so it doesn't split symmetrically, and gate gas horizontal spread by a probability so gas rises before it fans out. Non-gas movement is unchanged. This modifies the diagonal step Task 6 just edited and the horizontal step below it.
+
+**Files:**
+- Modify: `src/shaders/simulate.wgsl`
+
+- [ ] **Step 1** Add the tuning constant near the top consts:
+
+```wgsl
+// Per-tick chance a gas cell spreads sideways. < 1 so gas rises as a plume
+// instead of fanning flat every tick. Tune visually (see Step 4).
+const GAS_DISPERSE_CHANCE: f32 = 0.25;
+```
+
+- [ ] **Step 2** In `movement`, replace the diagonal step (the version Task 6 produced, with the `rollAD`/`rollBC` cohesion gates) with one that also randomizes gas rising to 50%:
+
+```wgsl
+  // 2. Diagonal, gated: wet sand by its cohesion chance; a gas cell rising
+  // diagonally by 50% so a gas blob doesn't split into two symmetric diverging
+  // streams; everything else slides freely.
+  let rollAD = f32(hash(u32(blockX), u32(blockY), params.frame) & 0xffffu) / 65536.0;
+  let gateAD = select(diagonalSlideChance(a.elementId), 0.5, isGas(d.elementId) && a.elementId == EMPTY);
+  if (!movedLeft && shouldSwapVertical(a.elementId, d.elementId) && rollAD < gateAD) {
+    let tmp = a; a = d; d = tmp;
+  }
+  let rollBC = f32(hash(u32(blockX + 1), u32(blockY), params.frame) & 0xffffu) / 65536.0;
+  let gateBC = select(diagonalSlideChance(b.elementId), 0.5, isGas(c.elementId) && b.elementId == EMPTY);
+  if (!movedRight && shouldSwapVertical(b.elementId, c.elementId) && rollBC < gateBC) {
+    let tmp = b; b = c; c = tmp;
+  }
+```
+
+- [ ] **Step 3** Replace the horizontal step (step 3) so gas spreads sideways only with probability `GAS_DISPERSE_CHANCE`, leaving liquids/others every-tick:
+
+```wgsl
+  // 3. Horizontal spread. Gas disperses sideways only occasionally so it rises
+  // as a plume; liquids and other spreads are unchanged.
+  let hRollAB = f32(hash(u32(blockX + 31u), u32(blockY + 17u), params.frame) & 0xffffu) / 65536.0;
+  let gasAB = isGas(a.elementId) || isGas(b.elementId);
+  if ((!gasAB || hRollAB < GAS_DISPERSE_CHANCE) && shouldSwapHorizontal(a.elementId, b.elementId)) {
+    let tmp = a; a = b; b = tmp;
+  }
+  let hRollCD = f32(hash(u32(blockX + 53u), u32(blockY + 71u), params.frame) & 0xffffu) / 65536.0;
+  let gasCD = isGas(c.elementId) || isGas(d.elementId);
+  if ((!gasCD || hRollCD < GAS_DISPERSE_CHANCE) && shouldSwapHorizontal(c.elementId, d.elementId)) {
+    let tmp = c; c = d; d = tmp;
+  }
+```
+
+- [ ] **Step 4** Verify `npm run typecheck` + `npm run build`, then **verify visually in Chrome** (this is aesthetic — the acceptance test is the look): `npm run dev`, paint a dense Smoke blob (max the flow-rate slider), and confirm it now rises as a coherent, gradually-dispersing plume instead of splitting into two streams that fly to the corners. If it still fans too much, lower `GAS_DISPERSE_CHANCE` (e.g. 0.15); if it rises in too thin a column, raise it. No console errors.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/shaders/simulate.wgsl
+git commit -m "Fix gas dispersion: rising gas rises as a plume, not a diverging split"
+```
+
+---
+
 ### Task 7: Water-only movement pass (fast leveling substeps)
 
 Add a `waterMovement` entry point: a Margolus block-CA that moves **only Water** — into empty/gas below and sideways into empty — leaving all other elements put. Running it many times per frame disperses water fast (sink through sand stays in the general `movement` pass so sand doesn't fall N× faster).

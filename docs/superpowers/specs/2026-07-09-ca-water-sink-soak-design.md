@@ -36,6 +36,16 @@ branch as an experiment.
 - Sand (and other denser powders/liquids) sinking through water.
 - A **soak** mechanic: sand absorbs water and becomes progressively wetter,
   modeled as a few discrete wet-sand element tiers.
+- **Natural gas dispersion** (fixing a pre-existing baseline issue found while
+  testing). Rising gas currently splits into two symmetric streams that diverge
+  to the corners instead of rising as a plume: the movement pass applies the
+  same crossed-diagonal swap to rising gas as to falling powder, and where
+  falling *converges* into a pile, rising *diverges*; the fully-deterministic
+  diagonal makes the split perfectly symmetric, and horizontal spread (every
+  tick) outpaces the block-alignment-gated rise. Fix: randomize the gas diagonal
+  to break the symmetric split and gate gas horizontal spread by a probability
+  so gas rises before it fans out. Same movement shader the water/soak work
+  edits, so it batches in here.
 
 **Non-goals (this phase):**
 - Continuous/sub-cell water depth or true pressure/momentum (that was the
