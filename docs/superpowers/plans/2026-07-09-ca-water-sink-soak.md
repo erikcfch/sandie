@@ -354,6 +354,8 @@ git commit -m "Add wet-sand drying as threshold reactions"
 # PART C — Shader + dispatch integration
 
 > Part C is verified by `npm run typecheck`, `npm run build`, `npm test` staying green, and the e2e in Part D. After each task, run the app (`npm run dev`) and confirm no console errors before committing. The WGSL mirrors the unit-tested logic from Parts A–B exactly.
+>
+> **WGSL gotcha:** `typecheck`/`build` do NOT validate WGSL — a shader error only surfaces at runtime as an "Invalid ComputePipeline / Invalid CommandBuffer" console error (and, because the bad pipeline shares the frame's command buffer with paint, the whole sim silently stops rendering). In particular WGSL forbids mixing `i32` and `u32` in arithmetic: `blockX`/`blockY` are `i32`, so a hash seed must be `u32(blockX) + 7u`, NOT `u32(blockX + 7u)`. Whenever a Part C task edits a shader, drive it in a real browser (or have the controller do so) and check the console before considering it done.
 
 ### Task 5: Register new element ids + make wet sand fall in the shader
 
@@ -474,12 +476,12 @@ const GAS_DISPERSE_CHANCE: f32 = 0.25;
 ```wgsl
   // 3. Horizontal spread. Gas disperses sideways only occasionally so it rises
   // as a plume; liquids and other spreads are unchanged.
-  let hRollAB = f32(hash(u32(blockX + 31u), u32(blockY + 17u), params.frame) & 0xffffu) / 65536.0;
+  let hRollAB = f32(hash(u32(blockX) + 31u, u32(blockY) + 17u, params.frame) & 0xffffu) / 65536.0;
   let gasAB = isGas(a.elementId) || isGas(b.elementId);
   if ((!gasAB || hRollAB < GAS_DISPERSE_CHANCE) && shouldSwapHorizontal(a.elementId, b.elementId)) {
     let tmp = a; a = b; b = tmp;
   }
-  let hRollCD = f32(hash(u32(blockX + 53u), u32(blockY + 71u), params.frame) & 0xffffu) / 65536.0;
+  let hRollCD = f32(hash(u32(blockX) + 53u, u32(blockY) + 71u, params.frame) & 0xffffu) / 65536.0;
   let gasCD = isGas(c.elementId) || isGas(d.elementId);
   if ((!gasCD || hRollCD < GAS_DISPERSE_CHANCE) && shouldSwapHorizontal(c.elementId, d.elementId)) {
     let tmp = c; c = d; d = tmp;
@@ -639,7 +641,7 @@ fn soak(@builtin(global_invocation_id) gid: vec3<u32>) {
   }
 
   // --- Drip: saturated sand over an empty cell (a over c, b over d) releases water.
-  let dripRoll = f32(hash(u32(blockX + 7u), u32(blockY + 13u), params.frame) & 0xffffu) / 65536.0;
+  let dripRoll = f32(hash(u32(blockX) + 7u, u32(blockY) + 13u, params.frame) & 0xffffu) / 65536.0;
   if (dripRoll < DRIP_CHANCE) {
     if (a.elementId == SATURATED_SAND && c.elementId == EMPTY) {
       a.elementId = WET_SAND; c = Cell(WATER, c.enthalpy);

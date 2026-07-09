@@ -256,12 +256,12 @@ fn movement(@builtin(global_invocation_id) gid: vec3<u32>) {
 
   // 3. Horizontal spread. Gas disperses sideways only occasionally so it rises
   // as a plume; liquids and other spreads are unchanged.
-  let hRollAB = f32(hash(u32(blockX + 31u), u32(blockY + 17u), params.frame) & 0xffffu) / 65536.0;
+  let hRollAB = f32(hash(u32(blockX) + 31u, u32(blockY) + 17u, params.frame) & 0xffffu) / 65536.0;
   let gasAB = isGas(a.elementId) || isGas(b.elementId);
   if ((!gasAB || hRollAB < GAS_DISPERSE_CHANCE) && shouldSwapHorizontal(a.elementId, b.elementId)) {
     let tmp = a; a = b; b = tmp;
   }
-  let hRollCD = f32(hash(u32(blockX + 53u), u32(blockY + 71u), params.frame) & 0xffffu) / 65536.0;
+  let hRollCD = f32(hash(u32(blockX) + 53u, u32(blockY) + 71u, params.frame) & 0xffffu) / 65536.0;
   let gasCD = isGas(c.elementId) || isGas(d.elementId);
   if ((!gasCD || hRollCD < GAS_DISPERSE_CHANCE) && shouldSwapHorizontal(c.elementId, d.elementId)) {
     let tmp = c; c = d; d = tmp;
