@@ -6,6 +6,7 @@
 //   15=Sulfuric Acid (Very Dilute) 16=Sulfuric Acid (Concentrated)
 //   17=Sulfuric Acid (Fuming) 18=Sulfur Dioxide
 //   19=Damp Sand 20=Wet Sand 21=Saturated Sand
+//   22=Salt 23=Limestone 24=Rust 25=CO₂
 //
 // Each grid cell is a Cell{elementId, enthalpy} struct. Enthalpy (not raw
 // temperature) is the stored quantity - see the "Latent heat" section below
@@ -103,19 +104,27 @@ const NO_NEIGHBOR: u32 = 0xffffffffu;
 // reactionData() - must stay in sync with its NO_MIN_TEMPERATURE export.
 const NO_MIN_TEMPERATURE: f32 = -999.0;
 
-fn density(id: u32) -> f32 { return materials[id * 2u].x; }
-fn conductivityOf(id: u32) -> f32 { return materials[id * 2u].y; }
-fn heatCapacityOf(id: u32) -> f32 { return materials[id * 2u].z; }
-fn ignitionTempOf(id: u32) -> f32 { return materials[id * 2u].w; }
-fn burnProductOf(id: u32) -> u32 { return u32(materials[id * 2u + 1u].x); }
-fn burnRateOf(id: u32) -> f32 { return materials[id * 2u + 1u].y; }
+fn density(id: u32) -> f32 { return materials[id * 3u].x; }
+fn conductivityOf(id: u32) -> f32 { return materials[id * 3u].y; }
+fn heatCapacityOf(id: u32) -> f32 { return materials[id * 3u].z; }
+fn ignitionTempOf(id: u32) -> f32 { return materials[id * 3u].w; }
+fn burnProductOf(id: u32) -> u32 { return u32(materials[id * 3u + 1u].x); }
+fn burnRateOf(id: u32) -> f32 { return materials[id * 3u + 1u].y; }
+fn corrosiveStrengthOf(id: u32) -> f32 { return materials[id * 3u + 1u].z; }
+fn solubilityOf(id: u32) -> f32 { return materials[id * 3u + 1u].w; }
+fn dissolvedProductOf(id: u32) -> u32 { return u32(materials[id * 3u + 2u].x); }
+fn weakensToOf(id: u32) -> u32 { return u32(materials[id * 3u + 2u].y); }
 
 const FORM_POWDER: u32 = 1u;
 const FORM_LIQUID: u32 = 2u;
 const FORM_GAS: u32 = 3u;
 const FLAMMABLE_BIT: u32 = 4u; // 1u << 2u
+const CORROSIVE_BIT: u32 = 8u; // 1u << 3u
+const SOLUBLE_BIT: u32 = 16u;  // 1u << 4u
 fn formOf(id: u32) -> u32 { return materialFlags[id] & 3u; }
 fn isFlammable(id: u32) -> bool { return (materialFlags[id] & FLAMMABLE_BIT) != 0u; }
+fn isCorrosive(id: u32) -> bool { return (materialFlags[id] & CORROSIVE_BIT) != 0u; }
+fn isSoluble(id: u32) -> bool { return (materialFlags[id] & SOLUBLE_BIT) != 0u; }
 
 fn isPowderOrLiquid(id: u32) -> bool {
   let f = formOf(id);
@@ -553,6 +562,69 @@ fn soak(@builtin(global_invocation_id) gid: vec3<u32>) {
       let t = thermalFromEnthalpy(b.elementId, b.enthalpy).temperature;
       b = Cell(WET_SAND, enthalpyForNewElement(t, WET_SAND)); d = Cell(WATER, enthalpyForNewElement(t, WATER));
     }
+  }
+
+  writeBuf[idxA] = a; writeBuf[idxB] = b; writeBuf[idxC] = c; writeBuf[idxD] = d;
+}
+
+const CORRODE_CHANCE: f32 = 0.15;
+
+// Mirrors src/corrosion.ts dissolves(): corrosive strong enough for the soluble.
+fn corrodes(corrosiveId: u32, solubleId: u32) -> bool {
+  return isCorrosive(corrosiveId) && isSoluble(solubleId)
+      && corrosiveStrengthOf(corrosiveId) >= solubilityOf(solubleId);
+}
+
+struct CorrodeResult { corrosive: Cell, soluble: Cell }
+
+fn applyCorrode(corrosive: Cell, soluble: Cell) -> CorrodeResult {
+  let prod = dissolvedProductOf(soluble.elementId);
+  let newSoluble = Cell(prod, preserveTempEnthalpy(soluble.elementId, soluble.enthalpy, prod));
+  let wt = weakensToOf(corrosive.elementId);
+  var newCorrosive = corrosive;
+  if (wt != corrosive.elementId) {
+    newCorrosive = Cell(wt, preserveTempEnthalpy(corrosive.elementId, corrosive.enthalpy, wt));
+  }
+  return CorrodeResult(newCorrosive, newSoluble);
+}
+
+// A corrosive dissolves an orthogonally-adjacent soluble when its strength meets
+// the soluble's threshold: the soluble becomes its dissolvedProduct and the
+// corrosive steps down to its weakensTo. Two-cell -> block-owned (soak's pattern).
+@compute @workgroup_size(8, 8)
+fn corrode(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let width = i32(params.width);
+  let height = i32(params.height);
+  let x = i32(gid.x);
+  let y = i32(gid.y);
+  if (x >= width || y >= height) { return; }
+  let selfIndex = cellIndex(x, y, width);
+
+  let alignment = params.frame % 4u;
+  let ox = i32(alignment & 1u);
+  let oy = i32((alignment >> 1u) & 1u);
+  if (x < ox || y < oy) { writeBuf[selfIndex] = readBuf[selfIndex]; return; }
+  let blockX = x - ((x - ox) % 2);
+  let blockY = y - ((y - oy) % 2);
+  if (blockX + 1 >= width || blockY + 1 >= height) { writeBuf[selfIndex] = readBuf[selfIndex]; return; }
+  if (x != blockX || y != blockY) { return; }
+
+  let idxA = cellIndex(blockX, blockY, width);
+  let idxB = cellIndex(blockX + 1, blockY, width);
+  let idxC = cellIndex(blockX, blockY + 1, width);
+  let idxD = cellIndex(blockX + 1, blockY + 1, width);
+  var a = readBuf[idxA]; var b = readBuf[idxB]; var c = readBuf[idxC]; var d = readBuf[idxD];
+
+  let roll = f32(hash(u32(blockX), u32(blockY), params.frame) & 0xffffu) / 65536.0;
+  if (roll < CORRODE_CHANCE) {
+    if (corrodes(a.elementId, b.elementId)) { let r = applyCorrode(a, b); a = r.corrosive; b = r.soluble; }
+    else if (corrodes(b.elementId, a.elementId)) { let r = applyCorrode(b, a); b = r.corrosive; a = r.soluble; }
+    else if (corrodes(a.elementId, c.elementId)) { let r = applyCorrode(a, c); a = r.corrosive; c = r.soluble; }
+    else if (corrodes(c.elementId, a.elementId)) { let r = applyCorrode(c, a); c = r.corrosive; a = r.soluble; }
+    else if (corrodes(b.elementId, d.elementId)) { let r = applyCorrode(b, d); b = r.corrosive; d = r.soluble; }
+    else if (corrodes(d.elementId, b.elementId)) { let r = applyCorrode(d, b); d = r.corrosive; b = r.soluble; }
+    else if (corrodes(c.elementId, d.elementId)) { let r = applyCorrode(c, d); c = r.corrosive; d = r.soluble; }
+    else if (corrodes(d.elementId, c.elementId)) { let r = applyCorrode(d, c); d = r.corrosive; c = r.soluble; }
   }
 
   writeBuf[idxA] = a; writeBuf[idxB] = b; writeBuf[idxC] = c; writeBuf[idxD] = d;

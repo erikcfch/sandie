@@ -45,6 +45,14 @@ export interface ElementDef {
   ignitionTemp?: number;
   burnProduct?: number;
   burnRate?: number;
+  /** Corrosive's strength tier (higher dissolves tougher solubles). */
+  corrosiveStrength?: number;
+  /** Soluble's threshold: min corrosiveStrength that dissolves it (low = dissolves easily). */
+  solubility?: number;
+  /** What a soluble becomes when dissolved (element id; Empty = vanishes). */
+  dissolvedProduct?: number;
+  /** What a corrosive becomes when it reacts (element id); absent = does not deplete. */
+  weakensTo?: number;
 }
 
 export const AMBIENT_TEMP = 20;
@@ -61,17 +69,21 @@ export const ELEMENTS: readonly ElementDef[] = [
   { id: 8, name: 'Steam', category: 'gas', density: 1, color: [220, 220, 220], defaultTemp: 110, thermalConductivity: 0.05, heatCapacity: 2.0, family: 'physical', form: 'gas', phase: 'gas', origin: 'inorganic', metallic: 'nonmetal', realDensity: 0.0006, specificHeat: 2.0 },
   { id: 9, name: 'Fire', category: 'gas', density: 1, color: [240, 120, 30], defaultTemp: 400, thermalConductivity: 0.05, heatCapacity: 0.5, family: 'physical', form: 'gas', phase: 'gas', origin: 'inorganic', metallic: 'nonmetal', realDensity: 0.0003, specificHeat: 1.0 },
   { id: 10, name: 'Obsidian', category: 'static', density: 100, color: [40, 30, 45], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.5, heatCapacity: 0.8, family: 'physical', form: 'static', phase: 'solid', origin: 'inorganic', metallic: 'nonmetal', realDensity: 2.5, specificHeat: 0.8 },
-  { id: 11, name: 'Sulfuric Acid (Dilute)', category: 'liquid', density: 45, color: [190, 220, 40], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.25, heatCapacity: 4.0, family: 'chem', formula: 'H₂SO₄', form: 'liquid', phase: 'liquid', origin: 'inorganic', metallic: 'nonmetal', corrosive: true, realDensity: 1.1, specificHeat: 3.5 },
+  { id: 11, name: 'Sulfuric Acid (Dilute)', category: 'liquid', density: 45, color: [190, 220, 40], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.25, heatCapacity: 4.0, family: 'chem', formula: 'H₂SO₄', form: 'liquid', phase: 'liquid', origin: 'inorganic', metallic: 'nonmetal', corrosive: true, realDensity: 1.1, specificHeat: 3.5, corrosiveStrength: 2, weakensTo: 15 },
   { id: 12, name: 'Copper', category: 'static', density: 100, color: [184, 115, 51], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.9, heatCapacity: 0.6, family: 'chem', formula: 'Cu', form: 'static', phase: 'solid', origin: 'inorganic', metallic: 'metal', conductive: true, realDensity: 8.96, specificHeat: 0.385, meltingPoint: 1085 },
   { id: 13, name: 'Copper Sulfate', category: 'powder', density: 70, color: [210, 225, 235], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.3, heatCapacity: 0.8, family: 'chem', formula: 'CuSO₄', form: 'powder', phase: 'solid', origin: 'inorganic', metallic: 'nonmetal', realDensity: 3.6, specificHeat: 0.9 },
   { id: 14, name: 'Hydrogen', category: 'gas', density: 1, color: [230, 245, 255], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.05, heatCapacity: 0.5, family: 'chem', formula: 'H₂', form: 'gas', phase: 'gas', origin: 'inorganic', metallic: 'nonmetal', realDensity: 0.00009, specificHeat: 14.3 },
-  { id: 15, name: 'Sulfuric Acid (Very Dilute)', category: 'liquid', density: 41, color: [210, 230, 120], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.28, heatCapacity: 4.2, family: 'chem', formula: 'H₂SO₄', form: 'liquid', phase: 'liquid', origin: 'inorganic', metallic: 'nonmetal', corrosive: true, realDensity: 1.05, specificHeat: 3.8 },
-  { id: 16, name: 'Sulfuric Acid (Concentrated)', category: 'liquid', density: 52, color: [200, 160, 20], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.20, heatCapacity: 2.5, family: 'chem', formula: 'H₂SO₄', form: 'liquid', phase: 'liquid', origin: 'inorganic', metallic: 'nonmetal', corrosive: true, realDensity: 1.83, specificHeat: 1.4 },
-  { id: 17, name: 'Sulfuric Acid (Fuming)', category: 'liquid', density: 56, color: [140, 100, 10], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.15, heatCapacity: 2.0, family: 'chem', formula: 'H₂SO₄·SO₃', form: 'liquid', phase: 'liquid', origin: 'inorganic', metallic: 'nonmetal', corrosive: true, realDensity: 1.90, specificHeat: 1.3 },
+  { id: 15, name: 'Sulfuric Acid (Very Dilute)', category: 'liquid', density: 41, color: [210, 230, 120], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.28, heatCapacity: 4.2, family: 'chem', formula: 'H₂SO₄', form: 'liquid', phase: 'liquid', origin: 'inorganic', metallic: 'nonmetal', corrosive: true, realDensity: 1.05, specificHeat: 3.8, corrosiveStrength: 1, weakensTo: 3 },
+  { id: 16, name: 'Sulfuric Acid (Concentrated)', category: 'liquid', density: 52, color: [200, 160, 20], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.20, heatCapacity: 2.5, family: 'chem', formula: 'H₂SO₄', form: 'liquid', phase: 'liquid', origin: 'inorganic', metallic: 'nonmetal', corrosive: true, realDensity: 1.83, specificHeat: 1.4, corrosiveStrength: 3, weakensTo: 11 },
+  { id: 17, name: 'Sulfuric Acid (Fuming)', category: 'liquid', density: 56, color: [140, 100, 10], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.15, heatCapacity: 2.0, family: 'chem', formula: 'H₂SO₄·SO₃', form: 'liquid', phase: 'liquid', origin: 'inorganic', metallic: 'nonmetal', corrosive: true, realDensity: 1.90, specificHeat: 1.3, corrosiveStrength: 4, weakensTo: 16 },
   { id: 18, name: 'Sulfur Dioxide', category: 'gas', density: 1, color: [225, 225, 150], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.05, heatCapacity: 0.6, family: 'chem', formula: 'SO₂', form: 'gas', phase: 'gas', origin: 'inorganic', metallic: 'nonmetal', realDensity: 0.0026, specificHeat: 0.64 },
   { id: 19, name: 'Damp Sand', category: 'powder', density: 63, color: [150, 135, 95], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.35, heatCapacity: 1.5, family: 'physical', form: 'powder', phase: 'solid', origin: 'inorganic', metallic: 'nonmetal', realDensity: 1.8, specificHeat: 1.2 },
   { id: 20, name: 'Wet Sand', category: 'powder', density: 66, color: [120, 105, 72], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.4, heatCapacity: 2.5, family: 'physical', form: 'powder', phase: 'solid', origin: 'inorganic', metallic: 'nonmetal', realDensity: 1.95, specificHeat: 1.5 },
   { id: 21, name: 'Saturated Sand', category: 'powder', density: 70, color: [90, 78, 52], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.45, heatCapacity: 3.5, family: 'physical', form: 'powder', phase: 'solid', origin: 'inorganic', metallic: 'nonmetal', realDensity: 2.08, specificHeat: 1.8 },
+  { id: 22, name: 'Salt', category: 'powder', density: 62, color: [235, 235, 240], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.3, heatCapacity: 0.88, family: 'chem', formula: 'NaCl', form: 'powder', phase: 'solid', origin: 'inorganic', metallic: 'nonmetal', soluble: true, solubility: 1, dissolvedProduct: 0, realDensity: 2.17, specificHeat: 0.88 },
+  { id: 23, name: 'Limestone', category: 'powder', density: 64, color: [225, 220, 205], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.35, heatCapacity: 0.84, family: 'chem', formula: 'CaCO₃', form: 'powder', phase: 'solid', origin: 'inorganic', metallic: 'nonmetal', soluble: true, solubility: 2, dissolvedProduct: 25, realDensity: 2.71, specificHeat: 0.84 },
+  { id: 24, name: 'Rust', category: 'powder', density: 76, color: [150, 70, 35], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.4, heatCapacity: 0.65, family: 'chem', formula: 'Fe₂O₃', form: 'powder', phase: 'solid', origin: 'inorganic', metallic: 'nonmetal', soluble: true, solubility: 3, dissolvedProduct: 0, realDensity: 5.24, specificHeat: 0.65 },
+  { id: 25, name: 'CO₂', category: 'gas', density: 1, color: [200, 215, 205], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.05, heatCapacity: 0.85, family: 'chem', formula: 'CO₂', form: 'gas', phase: 'gas', origin: 'inorganic', metallic: 'nonmetal', realDensity: 0.00198, specificHeat: 0.85 },
 ];
 
 const BY_NAME = new Map(ELEMENTS.map((e) => [e.name, e]));
@@ -93,17 +105,21 @@ export function getElementByName(name: string): ElementDef {
 }
 
 export function materialProperties(): Float32Array {
-  const data = new Float32Array(ELEMENTS.length * 8);
+  const data = new Float32Array(ELEMENTS.length * 12);
   for (const element of ELEMENTS) {
-    const offset = element.id * 8;
-    data[offset + 0] = element.density;             // sim density (unchanged)
+    const offset = element.id * 12;
+    data[offset + 0] = element.density;
     data[offset + 1] = element.thermalConductivity;
     data[offset + 2] = element.heatCapacity;
     data[offset + 3] = element.ignitionTemp ?? 0;
     data[offset + 4] = element.burnProduct ?? 0;
     data[offset + 5] = element.burnRate ?? 0;
-    data[offset + 6] = 0; // reserved (Phase 2: corrosiveStrength)
-    data[offset + 7] = 0; // reserved (Phase 2: solubility)
+    data[offset + 6] = element.corrosiveStrength ?? 0;
+    data[offset + 7] = element.solubility ?? 0;
+    data[offset + 8] = element.dissolvedProduct ?? 0;
+    data[offset + 9] = element.weakensTo ?? element.id; // self = does not deplete
+    data[offset + 10] = 0;
+    data[offset + 11] = 0;
   }
   return data;
 }
