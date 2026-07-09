@@ -37,6 +37,14 @@ export const THRESHOLD_REACTIONS: readonly ThresholdReaction[] = [
     product: getElementByName('Sulfuric Acid (Fuming)').id,
     chance: 0.05,
   },
+  // Wet sand dries back toward dry Sand: a slow trickle at any temperature,
+  // and a fast pass near heat (the absorbed water evaporates - no cell spawned).
+  { reactant: getElementByName('Damp Sand').id, minTemperature: -273, product: getElementByName('Sand').id, chance: 0.0008 },
+  { reactant: getElementByName('Damp Sand').id, minTemperature: 60, product: getElementByName('Sand').id, chance: 0.03 },
+  { reactant: getElementByName('Wet Sand').id, minTemperature: -273, product: getElementByName('Damp Sand').id, chance: 0.0006 },
+  { reactant: getElementByName('Wet Sand').id, minTemperature: 60, product: getElementByName('Damp Sand').id, chance: 0.03 },
+  { reactant: getElementByName('Saturated Sand').id, minTemperature: -273, product: getElementByName('Wet Sand').id, chance: 0.0005 },
+  { reactant: getElementByName('Saturated Sand').id, minTemperature: 60, product: getElementByName('Wet Sand').id, chance: 0.03 },
 ];
 
 /** Finds the threshold reaction(s) where the given element is the reactant. */

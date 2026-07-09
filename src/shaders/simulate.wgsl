@@ -5,6 +5,7 @@
 //   10=Obsidian 11=Sulfuric Acid (Dilute) 12=Copper 13=Copper Sulfate 14=Hydrogen
 //   15=Sulfuric Acid (Very Dilute) 16=Sulfuric Acid (Concentrated)
 //   17=Sulfuric Acid (Fuming) 18=Sulfur Dioxide
+//   19=Damp Sand 20=Wet Sand 21=Saturated Sand
 //
 // Each grid cell is a Cell{elementId, enthalpy} struct. Enthalpy (not raw
 // temperature) is the stored quantity - see the "Latent heat" section below
@@ -90,6 +91,12 @@ const ACID_VERY_DILUTE: u32 = 15u;
 const ACID_CONCENTRATED: u32 = 16u;
 const ACID_FUMING: u32 = 17u;
 const SULFUR_DIOXIDE: u32 = 18u;
+const DAMP_SAND: u32 = 19u;
+const WET_SAND: u32 = 20u;
+const SATURATED_SAND: u32 = 21u;
+// Per-tick chance a gas cell spreads sideways. < 1 so gas rises as a plume
+// instead of fanning flat every tick. Tune visually.
+const GAS_DISPERSE_CHANCE: f32 = 0.25;
 const NO_NEIGHBOR: u32 = 0xffffffffu;
 // Sentinel for "no minimum temperature gate" written by reactions.ts's
 // reactionData() - must stay in sync with its NO_MIN_TEMPERATURE export.
@@ -109,7 +116,8 @@ fn heatCapacityOf(id: u32) -> f32 {
 
 fn isPowderOrLiquid(id: u32) -> bool {
   return id == SAND || id == WATER || id == LAVA || id == ACID || id == COPPER_SULFATE
-      || id == ACID_VERY_DILUTE || id == ACID_CONCENTRATED || id == ACID_FUMING;
+      || id == ACID_VERY_DILUTE || id == ACID_CONCENTRATED || id == ACID_FUMING
+      || id == DAMP_SAND || id == WET_SAND || id == SATURATED_SAND;
 }
 
 fn isGas(id: u32) -> bool {
@@ -118,6 +126,15 @@ fn isGas(id: u32) -> bool {
 
 fn isLiquid(id: u32) -> bool {
   return id == WATER || id == LAVA || id == ACID || id == ACID_VERY_DILUTE || id == ACID_CONCENTRATED || id == ACID_FUMING;
+}
+
+// Cohesion: wetter sand resists sliding diagonally off a pile (mirrors
+// src/wetSand.ts diagonalSlideChance). 1.0 = always slides (dry/other).
+fn diagonalSlideChance(id: u32) -> f32 {
+  if (id == DAMP_SAND) { return 0.6; }
+  if (id == WET_SAND) { return 0.3; }
+  if (id == SATURATED_SAND) { return 0.12; }
+  return 1.0;
 }
 
 fn cellIndex(x: i32, y: i32, width: i32) -> u32 {
@@ -224,19 +241,29 @@ fn movement(@builtin(global_invocation_id) gid: vec3<u32>) {
   }
 
   // 2. Diagonal, only for a column that didn't just resolve straight down
-  // (so a cell moves at most once per tick).
-  if (!movedLeft && shouldSwapVertical(a.elementId, d.elementId)) {
+  // (so a cell moves at most once per tick), gated by cohesion so wet sand
+  // clumps instead of sliding.
+  let rollAD = f32(hash(u32(blockX), u32(blockY), params.frame) & 0xffffu) / 65536.0;
+  let gateAD = select(diagonalSlideChance(a.elementId), 0.5, isGas(d.elementId) && a.elementId == EMPTY);
+  if (!movedLeft && shouldSwapVertical(a.elementId, d.elementId) && rollAD < gateAD) {
     let tmp = a; a = d; d = tmp;
   }
-  if (!movedRight && shouldSwapVertical(b.elementId, c.elementId)) {
+  let rollBC = f32(hash(u32(blockX + 1), u32(blockY), params.frame) & 0xffffu) / 65536.0;
+  let gateBC = select(diagonalSlideChance(b.elementId), 0.5, isGas(c.elementId) && b.elementId == EMPTY);
+  if (!movedRight && shouldSwapVertical(b.elementId, c.elementId) && rollBC < gateBC) {
     let tmp = b; b = c; c = tmp;
   }
 
-  // 3. Horizontal spread, each row independently.
-  if (shouldSwapHorizontal(a.elementId, b.elementId)) {
+  // 3. Horizontal spread. Gas disperses sideways only occasionally so it rises
+  // as a plume; liquids and other spreads are unchanged.
+  let hRollAB = f32(hash(u32(blockX) + 31u, u32(blockY) + 17u, params.frame) & 0xffffu) / 65536.0;
+  let gasAB = isGas(a.elementId) || isGas(b.elementId);
+  if ((!gasAB || hRollAB < GAS_DISPERSE_CHANCE) && shouldSwapHorizontal(a.elementId, b.elementId)) {
     let tmp = a; a = b; b = tmp;
   }
-  if (shouldSwapHorizontal(c.elementId, d.elementId)) {
+  let hRollCD = f32(hash(u32(blockX) + 53u, u32(blockY) + 71u, params.frame) & 0xffffu) / 65536.0;
+  let gasCD = isGas(c.elementId) || isGas(d.elementId);
+  if ((!gasCD || hRollCD < GAS_DISPERSE_CHANCE) && shouldSwapHorizontal(c.elementId, d.elementId)) {
     let tmp = c; c = d; d = tmp;
   }
 
@@ -245,6 +272,68 @@ fn movement(@builtin(global_invocation_id) gid: vec3<u32>) {
   writeBuf[idxC] = c;
   writeBuf[idxD] = d;
 }
+
+// Water-only vertical swap: water sinks into empty or gas directly below.
+fn waterShouldSwapV(topVal: u32, bottomVal: u32) -> bool {
+  return topVal == WATER && (bottomVal == EMPTY || isGas(bottomVal));
+}
+// Water-only horizontal swap: water spreads into adjacent empty space.
+fn waterShouldSwapH(leftVal: u32, rightVal: u32) -> bool {
+  return (leftVal == WATER && rightVal == EMPTY) || (rightVal == WATER && leftVal == EMPTY);
+}
+
+@compute @workgroup_size(8, 8)
+fn waterMovement(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let width = i32(params.width);
+  let height = i32(params.height);
+  let x = i32(gid.x);
+  let y = i32(gid.y);
+  if (x >= width || y >= height) { return; }
+  let selfIndex = cellIndex(x, y, width);
+
+  let alignment = params.frame % 4u;
+  let ox = i32(alignment & 1u);
+  let oy = i32((alignment >> 1u) & 1u);
+  if (x < ox || y < oy) { writeBuf[selfIndex] = readBuf[selfIndex]; return; }
+  let blockX = x - ((x - ox) % 2);
+  let blockY = y - ((y - oy) % 2);
+  if (blockX + 1 >= width || blockY + 1 >= height) { writeBuf[selfIndex] = readBuf[selfIndex]; return; }
+  if (x != blockX || y != blockY) { return; }
+
+  let idxA = cellIndex(blockX, blockY, width);
+  let idxB = cellIndex(blockX + 1, blockY, width);
+  let idxC = cellIndex(blockX, blockY + 1, width);
+  let idxD = cellIndex(blockX + 1, blockY + 1, width);
+  var a = readBuf[idxA]; var b = readBuf[idxB]; var c = readBuf[idxC]; var d = readBuf[idxD];
+
+  let movedLeft = waterShouldSwapV(a.elementId, c.elementId);
+  if (movedLeft) { let t = a; a = c; c = t; }
+  let movedRight = waterShouldSwapV(b.elementId, d.elementId);
+  if (movedRight) { let t = b; b = d; d = t; }
+  if (!movedLeft && waterShouldSwapV(a.elementId, d.elementId)) { let t = a; a = d; d = t; }
+  if (!movedRight && waterShouldSwapV(b.elementId, c.elementId)) { let t = b; b = c; c = t; }
+  if (waterShouldSwapH(a.elementId, b.elementId)) { let t = a; a = b; b = t; }
+  if (waterShouldSwapH(c.elementId, d.elementId)) { let t = c; c = d; d = t; }
+
+  writeBuf[idxA] = a; writeBuf[idxB] = b; writeBuf[idxC] = c; writeBuf[idxD] = d;
+}
+
+const ABSORB_CHANCE: f32 = 0.30;
+const DRIP_CHANCE: f32 = 0.10;
+
+fn isSandTier(id: u32) -> bool {
+  return id == SAND || id == DAMP_SAND || id == WET_SAND || id == SATURATED_SAND;
+}
+fn wetterTier(id: u32) -> u32 {
+  if (id == SAND) { return DAMP_SAND; }
+  if (id == DAMP_SAND) { return WET_SAND; }
+  if (id == WET_SAND) { return SATURATED_SAND; }
+  return id; // saturated stays
+}
+
+// The soak() pass lives further down, after the thermal helpers
+// (thermalFromEnthalpy / enthalpyForNewElement) it needs to re-encode enthalpy
+// across an elementId change - WGSL requires those to be declared first.
 
 const CONDUCTION_RATE: f32 = 0.1;
 const AMBIENT_DRIFT_RATE: f32 = 0.003;
@@ -383,6 +472,89 @@ fn enthalpyForNewElement(temperature: f32, targetElementId: u32) -> f32 {
     return lavaChainEnthalpyForTemperature(temperature);
   }
   return temperature * heatCapacityOf(targetElementId);
+}
+
+// Enthalpy for `newId` that preserves the cell's current temperature (decoded
+// under `oldId`). Changing elementId while carrying the raw enthalpy number
+// across a heatCapacity change would silently jump the temperature (Water's 4.0
+// vs Empty's 0.5 reads a 20C cell as ~160C, i.e. 320C once the heat pass
+// decodes it) - this re-encodes so soaking neither injects nor loses heat.
+fn preserveTempEnthalpy(oldId: u32, enthalpy: f32, newId: u32) -> f32 {
+  return enthalpyForNewElement(thermalFromEnthalpy(oldId, enthalpy).temperature, newId);
+}
+
+// Absorb one adjacent Water into a sand-tier cell (Water->Empty, sand->wetter),
+// and let Saturated Sand drip one Water into an Empty cell below. Both are
+// two-cell transforms, so they run in this block-owned pass rather than the
+// per-cell heat() reaction loop. Every elementId change re-encodes enthalpy for
+// the new element: a promoted sand tier keeps its own temperature, a consumed
+// Water cell becomes ambient air, and a dripped Water cell inherits the sand's
+// temperature - so soaking doesn't reinterpret enthalpy under a new heatCapacity
+// and spuriously heat/cool the grid.
+@compute @workgroup_size(8, 8)
+fn soak(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let width = i32(params.width);
+  let height = i32(params.height);
+  let x = i32(gid.x);
+  let y = i32(gid.y);
+  if (x >= width || y >= height) { return; }
+  let selfIndex = cellIndex(x, y, width);
+
+  let alignment = params.frame % 4u;
+  let ox = i32(alignment & 1u);
+  let oy = i32((alignment >> 1u) & 1u);
+  if (x < ox || y < oy) { writeBuf[selfIndex] = readBuf[selfIndex]; return; }
+  let blockX = x - ((x - ox) % 2);
+  let blockY = y - ((y - oy) % 2);
+  if (blockX + 1 >= width || blockY + 1 >= height) { writeBuf[selfIndex] = readBuf[selfIndex]; return; }
+  if (x != blockX || y != blockY) { return; }
+
+  let idxA = cellIndex(blockX, blockY, width);
+  let idxB = cellIndex(blockX + 1, blockY, width);
+  let idxC = cellIndex(blockX, blockY + 1, width);
+  let idxD = cellIndex(blockX + 1, blockY + 1, width);
+  var a = readBuf[idxA]; var b = readBuf[idxB]; var c = readBuf[idxC]; var d = readBuf[idxD];
+
+  // A consumed Water cell leaves fresh air at the ambient temperature.
+  let emptyAmbient = enthalpyForNewElement(params.ambientTemp, EMPTY);
+
+  let roll = f32(hash(u32(blockX), u32(blockY), params.frame) & 0xffffu) / 65536.0;
+
+  // --- Absorb: at most one sand<->water pair in this block (a-b, a-c, b-d, c-d).
+  if (roll < ABSORB_CHANCE) {
+    if (isSandTier(a.elementId) && a.elementId != SATURATED_SAND && b.elementId == WATER) {
+      let nt = wetterTier(a.elementId); a = Cell(nt, preserveTempEnthalpy(a.elementId, a.enthalpy, nt)); b = Cell(EMPTY, emptyAmbient);
+    } else if (isSandTier(b.elementId) && b.elementId != SATURATED_SAND && a.elementId == WATER) {
+      let nt = wetterTier(b.elementId); b = Cell(nt, preserveTempEnthalpy(b.elementId, b.enthalpy, nt)); a = Cell(EMPTY, emptyAmbient);
+    } else if (isSandTier(a.elementId) && a.elementId != SATURATED_SAND && c.elementId == WATER) {
+      let nt = wetterTier(a.elementId); a = Cell(nt, preserveTempEnthalpy(a.elementId, a.enthalpy, nt)); c = Cell(EMPTY, emptyAmbient);
+    } else if (isSandTier(c.elementId) && c.elementId != SATURATED_SAND && a.elementId == WATER) {
+      let nt = wetterTier(c.elementId); c = Cell(nt, preserveTempEnthalpy(c.elementId, c.enthalpy, nt)); a = Cell(EMPTY, emptyAmbient);
+    } else if (isSandTier(b.elementId) && b.elementId != SATURATED_SAND && d.elementId == WATER) {
+      let nt = wetterTier(b.elementId); b = Cell(nt, preserveTempEnthalpy(b.elementId, b.enthalpy, nt)); d = Cell(EMPTY, emptyAmbient);
+    } else if (isSandTier(d.elementId) && d.elementId != SATURATED_SAND && b.elementId == WATER) {
+      let nt = wetterTier(d.elementId); d = Cell(nt, preserveTempEnthalpy(d.elementId, d.enthalpy, nt)); b = Cell(EMPTY, emptyAmbient);
+    } else if (isSandTier(c.elementId) && c.elementId != SATURATED_SAND && d.elementId == WATER) {
+      let nt = wetterTier(c.elementId); c = Cell(nt, preserveTempEnthalpy(c.elementId, c.enthalpy, nt)); d = Cell(EMPTY, emptyAmbient);
+    } else if (isSandTier(d.elementId) && d.elementId != SATURATED_SAND && c.elementId == WATER) {
+      let nt = wetterTier(d.elementId); d = Cell(nt, preserveTempEnthalpy(d.elementId, d.enthalpy, nt)); c = Cell(EMPTY, emptyAmbient);
+    }
+  }
+
+  // --- Drip: saturated sand over an empty cell (a over c, b over d) releases
+  // water; the dripped Water and the drier sand both inherit the sand's temp.
+  let dripRoll = f32(hash(u32(blockX) + 7u, u32(blockY) + 13u, params.frame) & 0xffffu) / 65536.0;
+  if (dripRoll < DRIP_CHANCE) {
+    if (a.elementId == SATURATED_SAND && c.elementId == EMPTY) {
+      let t = thermalFromEnthalpy(a.elementId, a.enthalpy).temperature;
+      a = Cell(WET_SAND, enthalpyForNewElement(t, WET_SAND)); c = Cell(WATER, enthalpyForNewElement(t, WATER));
+    } else if (b.elementId == SATURATED_SAND && d.elementId == EMPTY) {
+      let t = thermalFromEnthalpy(b.elementId, b.enthalpy).temperature;
+      b = Cell(WET_SAND, enthalpyForNewElement(t, WET_SAND)); d = Cell(WATER, enthalpyForNewElement(t, WATER));
+    }
+  }
+
+  writeBuf[idxA] = a; writeBuf[idxB] = b; writeBuf[idxC] = c; writeBuf[idxD] = d;
 }
 
 // Energy flowing from `tempFrom` toward `tempTo` this tick, bottlenecked by

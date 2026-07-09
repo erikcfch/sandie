@@ -1,4 +1,4 @@
-import { GRID_HEIGHT, GRID_WIDTH, TICKS_PER_FRAME, WORKGROUP_SIZE } from '../config';
+import { GRID_HEIGHT, GRID_WIDTH, TICKS_PER_FRAME, WATER_SUBSTEPS, WORKGROUP_SIZE } from '../config';
 import { AMBIENT_TEMP as ELEMENT_AMBIENT_TEMP, colorPalette, getElement, materialProperties } from '../elements';
 import { CONTACT_REACTIONS, reactionData } from '../reactions';
 import paintShaderCode from '../shaders/paint.wgsl?raw';
@@ -16,6 +16,10 @@ const WORKGROUPS_Y = Math.ceil(GRID_HEIGHT / WORKGROUP_SIZE);
 const AMBIENT_TEMP = 20;
 const EMPTY_ID = 0;
 const SIM_PARAMS_BYTES = 24; // SimParams{width, height, frame, ambientTemp, reactionCount, thresholdReactionCount}
+// One SimParams slot per block-CA dispatch that needs its own frame value:
+// TICKS_PER_FRAME movement/heat ticks (movement+heat within a tick share a
+// slot) + 1 soak pass + WATER_SUBSTEPS water-leveling passes.
+const SIM_SLOTS = TICKS_PER_FRAME + 1 + WATER_SUBSTEPS;
 
 export interface PaintInput {
   active: boolean;
@@ -63,6 +67,8 @@ export class Simulation {
 
   private readonly movementPipeline: GPUComputePipeline;
   private readonly heatPipeline: GPUComputePipeline;
+  private readonly waterMovementPipeline: GPUComputePipeline;
+  private readonly soakPipeline: GPUComputePipeline;
   private readonly paintPipeline: GPUComputePipeline;
   private readonly renderPipeline: GPURenderPipeline;
 
@@ -103,7 +109,7 @@ export class Simulation {
 
     this.simParamsBuffer = device.createBuffer({
       label: 'sim-params',
-      size: this.paramsStride * TICKS_PER_FRAME,
+      size: this.paramsStride * SIM_SLOTS,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     this.paintParamsBuffer = device.createBuffer({
@@ -160,6 +166,14 @@ export class Simulation {
     this.heatPipeline = device.createComputePipeline({
       layout: simPipelineLayout,
       compute: { module: simModule, entryPoint: 'heat' },
+    });
+    this.waterMovementPipeline = device.createComputePipeline({
+      layout: simPipelineLayout,
+      compute: { module: simModule, entryPoint: 'waterMovement' },
+    });
+    this.soakPipeline = device.createComputePipeline({
+      layout: simPipelineLayout,
+      compute: { module: simModule, entryPoint: 'soak' },
     });
     this.paintPipeline = device.createComputePipeline({
       layout: paintPipelineLayout,
@@ -281,13 +295,13 @@ export class Simulation {
       // frame's commands. Each tick gets its own paramsStride-aligned slot
       // instead, selected via a dynamic bind group offset per dispatch
       // (see the tick loop below).
-      const simParams = new ArrayBuffer(this.paramsStride * TICKS_PER_FRAME);
+      const simParams = new ArrayBuffer(this.paramsStride * SIM_SLOTS);
       const simView = new DataView(simParams);
-      for (let tick = 0; tick < TICKS_PER_FRAME; tick++) {
-        const slotOffset = tick * this.paramsStride;
+      for (let i = 0; i < SIM_SLOTS; i++) {
+        const slotOffset = i * this.paramsStride;
         simView.setUint32(slotOffset + 0, GRID_WIDTH, true);
         simView.setUint32(slotOffset + 4, GRID_HEIGHT, true);
-        simView.setUint32(slotOffset + 8, this.frame + tick, true);
+        simView.setUint32(slotOffset + 8, this.frame + i, true);
         simView.setFloat32(slotOffset + 12, ambientTemp, true);
         simView.setUint32(slotOffset + 16, CONTACT_REACTIONS.length, true);
         simView.setUint32(slotOffset + 20, THRESHOLD_REACTIONS.length, true);
@@ -322,7 +336,22 @@ export class Simulation {
           pass.setBindGroup(0, this.heatBindGroup, [slotOffset]);
           pass.dispatchWorkgroups(WORKGROUPS_X, WORKGROUPS_Y);
         }
-        this.frame += TICKS_PER_FRAME;
+
+        // Buffer A holds the latest grid here. soak reads A->writes B, then each
+        // water substep flips direction. movementBindGroup = A->B, heatBindGroup = B->A.
+        let readA = true;
+        const dispatchSim = (pipeline: GPUComputePipeline, slot: number) => {
+          pass.setPipeline(pipeline);
+          pass.setBindGroup(0, readA ? this.movementBindGroup : this.heatBindGroup, [slot * this.paramsStride]);
+          pass.dispatchWorkgroups(WORKGROUPS_X, WORKGROUPS_Y);
+          readA = !readA;
+        };
+        dispatchSim(this.soakPipeline, TICKS_PER_FRAME);
+        for (let s = 0; s < WATER_SUBSTEPS; s++) {
+          dispatchSim(this.waterMovementPipeline, TICKS_PER_FRAME + 1 + s);
+        }
+
+        this.frame += SIM_SLOTS;
       }
 
       pass.end();

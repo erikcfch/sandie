@@ -252,3 +252,20 @@ describe('Chem elements', () => {
     }
   });
 });
+
+describe('wet-sand tiers', () => {
+  it('exist with ascending density and are powders', () => {
+    const sand = getElementByName('Sand');
+    const damp = getElementByName('Damp Sand');
+    const wet = getElementByName('Wet Sand');
+    const sat = getElementByName('Saturated Sand');
+    expect([damp.id, wet.id, sat.id]).toEqual([19, 20, 21]);
+    // Denser than water (so they sink through it) and increasing with wetness.
+    const water = getElementByName('Water');
+    for (const e of [sand, damp, wet, sat]) expect(e.density).toBeGreaterThan(water.density);
+    expect(sand.density).toBeLessThan(damp.density);
+    expect(damp.density).toBeLessThan(wet.density);
+    expect(wet.density).toBeLessThan(sat.density);
+    for (const e of [damp, wet, sat]) expect(e.category).toBe('powder');
+  });
+});
