@@ -84,6 +84,8 @@ export const ELEMENTS: readonly ElementDef[] = [
   { id: 23, name: 'Limestone', category: 'powder', density: 64, color: [225, 220, 205], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.35, heatCapacity: 0.84, family: 'chem', formula: 'CaCO₃', form: 'powder', phase: 'solid', origin: 'inorganic', metallic: 'nonmetal', soluble: true, solubility: 2, dissolvedProduct: 25, realDensity: 2.71, specificHeat: 0.84 },
   { id: 24, name: 'Rust', category: 'powder', density: 76, color: [150, 70, 35], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.4, heatCapacity: 0.65, family: 'chem', formula: 'Fe₂O₃', form: 'powder', phase: 'solid', origin: 'inorganic', metallic: 'nonmetal', soluble: true, solubility: 3, dissolvedProduct: 0, realDensity: 5.24, specificHeat: 0.65 },
   { id: 25, name: 'CO₂', category: 'gas', density: 1, color: [200, 215, 205], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.05, heatCapacity: 0.85, family: 'chem', formula: 'CO₂', form: 'gas', phase: 'gas', origin: 'inorganic', metallic: 'nonmetal', realDensity: 0.00198, specificHeat: 0.85 },
+  { id: 26, name: 'Wax', category: 'static', density: 85, color: [240, 235, 215], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.2, heatCapacity: 2.0, family: 'physical', form: 'static', phase: 'solid', origin: 'organic', metallic: 'nonmetal', realDensity: 0.9, specificHeat: 2.1, meltingPoint: 60 },
+  { id: 27, name: 'Molten Wax', category: 'liquid', density: 42, color: [235, 210, 150], defaultTemp: 70, thermalConductivity: 0.2, heatCapacity: 2.2, family: 'physical', form: 'liquid', phase: 'liquid', origin: 'organic', metallic: 'nonmetal', realDensity: 0.8, specificHeat: 2.2, meltingPoint: 60 },
 ];
 
 const BY_NAME = new Map(ELEMENTS.map((e) => [e.name, e]));
