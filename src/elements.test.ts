@@ -386,3 +386,16 @@ describe('materials serializer with corrosion params', () => {
     expect(data[stone.id * 12 + 9]).toBe(stone.id); // no weakensTo -> own id
   });
 });
+
+describe('wax', () => {
+  it('adds Wax (static solid) and Molten Wax (liquid), both organic, no formula', () => {
+    const wax = getElementByName('Wax');
+    const molten = getElementByName('Molten Wax');
+    expect([wax.id, molten.id]).toEqual([26, 27]);
+    expect(wax.form).toBe('static');
+    expect(molten.form).toBe('liquid');
+    expect(wax.origin).toBe('organic');
+    expect(wax.meltingPoint).toBe(60);
+    expect(wax.formula).toBeUndefined();
+  });
+});

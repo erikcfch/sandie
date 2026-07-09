@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { getElementByName } from './elements';
 import { getChain, PHASE_TRANSITIONS } from './phaseTransitions';
+import { temperatureAndElementFromEnthalpy, enthalpyForTemperature } from './thermal';
 
 const ICE = getElementByName('Ice').id;
 const WATER = getElementByName('Water').id;
@@ -63,5 +64,18 @@ describe('getChain', () => {
   it('returns undefined for elements with no phase transitions', () => {
     expect(getChain(SAND)).toBeUndefined();
     expect(getChain(EMPTY)).toBeUndefined();
+  });
+});
+
+describe('wax melt chain', () => {
+  it('Wax melts to Molten Wax above 60C and resolidifies when cooled', () => {
+    const wax = getElementByName('Wax').id;
+    const molten = getElementByName('Molten Wax').id;
+    const chain = getChain(wax)!;
+    expect(chain.segments.map((s) => s.elementId)).toEqual([wax, molten]);
+    const hot = enthalpyForTemperature(80, molten);
+    expect(temperatureAndElementFromEnthalpy(wax, hot).elementId).toBe(molten);
+    const cold = enthalpyForTemperature(20, wax);
+    expect(temperatureAndElementFromEnthalpy(molten, cold).elementId).toBe(wax);
   });
 });
