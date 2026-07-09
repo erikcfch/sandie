@@ -338,3 +338,17 @@ describe('GPU material serializers', () => {
     expect((flags[getElementByName('Copper').id] >> 7) & 1).toBe(1);
   });
 });
+
+describe('acid corrosion params', () => {
+  const acid = (n: string) => getElementByName(n);
+  it('acids have ascending corrosiveStrength and step down a tier when consumed', () => {
+    expect(acid('Sulfuric Acid (Very Dilute)').corrosiveStrength).toBe(1);
+    expect(acid('Sulfuric Acid (Dilute)').corrosiveStrength).toBe(2);
+    expect(acid('Sulfuric Acid (Concentrated)').corrosiveStrength).toBe(3);
+    expect(acid('Sulfuric Acid (Fuming)').corrosiveStrength).toBe(4);
+    expect(acid('Sulfuric Acid (Very Dilute)').weakensTo).toBe(getElementByName('Water').id);
+    expect(acid('Sulfuric Acid (Dilute)').weakensTo).toBe(acid('Sulfuric Acid (Very Dilute)').id);
+    expect(acid('Sulfuric Acid (Concentrated)').weakensTo).toBe(acid('Sulfuric Acid (Dilute)').id);
+    expect(acid('Sulfuric Acid (Fuming)').weakensTo).toBe(acid('Sulfuric Acid (Concentrated)').id);
+  });
+});
