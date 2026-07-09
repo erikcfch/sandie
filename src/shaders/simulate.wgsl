@@ -273,6 +273,51 @@ fn movement(@builtin(global_invocation_id) gid: vec3<u32>) {
   writeBuf[idxD] = d;
 }
 
+// Water-only vertical swap: water sinks into empty or gas directly below.
+fn waterShouldSwapV(topVal: u32, bottomVal: u32) -> bool {
+  return topVal == WATER && (bottomVal == EMPTY || isGas(bottomVal));
+}
+// Water-only horizontal swap: water spreads into adjacent empty space.
+fn waterShouldSwapH(leftVal: u32, rightVal: u32) -> bool {
+  return (leftVal == WATER && rightVal == EMPTY) || (rightVal == WATER && leftVal == EMPTY);
+}
+
+@compute @workgroup_size(8, 8)
+fn waterMovement(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let width = i32(params.width);
+  let height = i32(params.height);
+  let x = i32(gid.x);
+  let y = i32(gid.y);
+  if (x >= width || y >= height) { return; }
+  let selfIndex = cellIndex(x, y, width);
+
+  let alignment = params.frame % 4u;
+  let ox = i32(alignment & 1u);
+  let oy = i32((alignment >> 1u) & 1u);
+  if (x < ox || y < oy) { writeBuf[selfIndex] = readBuf[selfIndex]; return; }
+  let blockX = x - ((x - ox) % 2);
+  let blockY = y - ((y - oy) % 2);
+  if (blockX + 1 >= width || blockY + 1 >= height) { writeBuf[selfIndex] = readBuf[selfIndex]; return; }
+  if (x != blockX || y != blockY) { return; }
+
+  let idxA = cellIndex(blockX, blockY, width);
+  let idxB = cellIndex(blockX + 1, blockY, width);
+  let idxC = cellIndex(blockX, blockY + 1, width);
+  let idxD = cellIndex(blockX + 1, blockY + 1, width);
+  var a = readBuf[idxA]; var b = readBuf[idxB]; var c = readBuf[idxC]; var d = readBuf[idxD];
+
+  let movedLeft = waterShouldSwapV(a.elementId, c.elementId);
+  if (movedLeft) { let t = a; a = c; c = t; }
+  let movedRight = waterShouldSwapV(b.elementId, d.elementId);
+  if (movedRight) { let t = b; b = d; d = t; }
+  if (!movedLeft && waterShouldSwapV(a.elementId, d.elementId)) { let t = a; a = d; d = t; }
+  if (!movedRight && waterShouldSwapV(b.elementId, c.elementId)) { let t = b; b = c; c = t; }
+  if (waterShouldSwapH(a.elementId, b.elementId)) { let t = a; a = b; b = t; }
+  if (waterShouldSwapH(c.elementId, d.elementId)) { let t = c; c = d; d = t; }
+
+  writeBuf[idxA] = a; writeBuf[idxB] = b; writeBuf[idxC] = c; writeBuf[idxD] = d;
+}
+
 const CONDUCTION_RATE: f32 = 0.1;
 const AMBIENT_DRIFT_RATE: f32 = 0.003;
 const FIRE_DECAY_CHANCE: f32 = 0.05;
