@@ -318,7 +318,7 @@ fn waterMovement(@builtin(global_invocation_id) gid: vec3<u32>) {
   writeBuf[idxA] = a; writeBuf[idxB] = b; writeBuf[idxC] = c; writeBuf[idxD] = d;
 }
 
-const ABSORB_CHANCE: f32 = 0.08;
+const ABSORB_CHANCE: f32 = 0.30;
 const DRIP_CHANCE: f32 = 0.10;
 
 fn isSandTier(id: u32) -> bool {
