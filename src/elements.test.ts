@@ -289,3 +289,24 @@ describe('material taxonomy', () => {
     expect(getElementByName('Sand').phase).toBe('solid');
   });
 });
+
+describe('capabilities and reference values', () => {
+  it('only Wood is flammable in Phase 1, igniting to Fire', () => {
+    const wood = getElementByName('Wood');
+    expect(wood.flammable).toBe(true);
+    expect(wood.ignitionTemp).toBe(300);
+    expect(wood.burnProduct).toBe(getElementByName('Fire').id);
+    expect(wood.burnRate).toBe(1);
+    expect(ELEMENTS.filter((e) => e.flammable).map((e) => e.name)).toEqual(['Wood']);
+  });
+  it('acids are corrosive and copper is a conductive metal', () => {
+    for (const n of ['Sulfuric Acid (Dilute)', 'Sulfuric Acid (Very Dilute)', 'Sulfuric Acid (Concentrated)', 'Sulfuric Acid (Fuming)'])
+      expect(getElementByName(n).corrosive).toBe(true);
+    expect(getElementByName('Copper').conductive).toBe(true);
+  });
+  it('records real reference densities (ice less dense than water; copper dense)', () => {
+    expect(getElementByName('Ice').realDensity!).toBeLessThan(getElementByName('Water').realDensity!);
+    expect(getElementByName('Copper').realDensity!).toBeGreaterThan(5);
+    expect(getElementByName('Water').realDensity).toBeCloseTo(1.0, 1);
+  });
+});
