@@ -40,6 +40,9 @@ export const ELEMENTS: readonly ElementDef[] = [
   { id: 16, name: 'Sulfuric Acid (Concentrated)', category: 'liquid', density: 52, color: [200, 160, 20], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.20, heatCapacity: 2.5, family: 'chem', formula: 'H₂SO₄' },
   { id: 17, name: 'Sulfuric Acid (Fuming)', category: 'liquid', density: 56, color: [140, 100, 10], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.15, heatCapacity: 2.0, family: 'chem', formula: 'H₂SO₄·SO₃' },
   { id: 18, name: 'Sulfur Dioxide', category: 'gas', density: 1, color: [225, 225, 150], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.05, heatCapacity: 0.6, family: 'chem', formula: 'SO₂' },
+  { id: 19, name: 'Damp Sand', category: 'powder', density: 63, color: [150, 135, 95], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.35, heatCapacity: 1.5, family: 'physical' },
+  { id: 20, name: 'Wet Sand', category: 'powder', density: 66, color: [120, 105, 72], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.4, heatCapacity: 2.5, family: 'physical' },
+  { id: 21, name: 'Saturated Sand', category: 'powder', density: 70, color: [90, 78, 52], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.45, heatCapacity: 3.5, family: 'physical' },
 ];
 
 const BY_NAME = new Map(ELEMENTS.map((e) => [e.name, e]));
