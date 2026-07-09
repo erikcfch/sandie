@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { getElement, getElementByName } from './elements';
-import { THRESHOLD_REACTIONS, getThresholdReactionsFor, thresholdReactionData } from './thresholdReactions';
+import {
+  THRESHOLD_REACTIONS,
+  getThresholdReactionsFor,
+  thresholdReactionData,
+  type ThresholdReaction,
+} from './thresholdReactions';
 
 const VERY_DILUTE = getElementByName('Sulfuric Acid (Very Dilute)').id;
 const DILUTE = getElementByName('Sulfuric Acid (Dilute)').id;
@@ -47,10 +52,21 @@ describe('THRESHOLD_REACTIONS', () => {
     }
   });
 
-  it('has strictly increasing minTemperature thresholds up the tier chain', () => {
-    const sorted = [...THRESHOLD_REACTIONS].sort((a, b) => a.minTemperature - b.minTemperature);
-    for (let i = 1; i < sorted.length; i++) {
-      expect(sorted[i].minTemperature).toBeGreaterThan(sorted[i - 1].minTemperature);
+  it('has strictly increasing minTemperature thresholds up the tier chain, per reactant', () => {
+    // Scoped per reactant: independent reaction chains (e.g. acid concentration
+    // vs. sand drying) may legitimately share minTemperature values with each
+    // other, but a single reactant's own rows must still strictly increase.
+    const byReactant = new Map<number, ThresholdReaction[]>();
+    for (const reaction of THRESHOLD_REACTIONS) {
+      const rows = byReactant.get(reaction.reactant) ?? [];
+      rows.push(reaction);
+      byReactant.set(reaction.reactant, rows);
+    }
+    for (const rows of byReactant.values()) {
+      const sorted = [...rows].sort((a, b) => a.minTemperature - b.minTemperature);
+      for (let i = 1; i < sorted.length; i++) {
+        expect(sorted[i].minTemperature).toBeGreaterThan(sorted[i - 1].minTemperature);
+      }
     }
   });
 });
@@ -83,5 +99,21 @@ describe('thresholdReactionData', () => {
     expect(data[offset + 1]).toBeCloseTo(reaction.minTemperature);
     expect(data[offset + 2]).toBe(reaction.product);
     expect(data[offset + 3]).toBeCloseTo(reaction.chance);
+  });
+});
+
+describe('wet-sand drying', () => {
+  const rowsFor = (name: string) =>
+    THRESHOLD_REACTIONS.filter((r) => r.reactant === getElementByName(name).id);
+
+  it('every wet tier can dry one step (slow ambient + fast hot)', () => {
+    for (const [wet, drier] of [['Damp Sand', 'Sand'], ['Wet Sand', 'Damp Sand'], ['Saturated Sand', 'Wet Sand']] as const) {
+      const rows = rowsFor(wet);
+      expect(rows.length).toBeGreaterThanOrEqual(2);
+      for (const r of rows) expect(r.product).toBe(getElementByName(drier).id);
+      // one always-on slow row, one hot fast row
+      expect(rows.some((r) => r.minTemperature <= 0 && r.chance < 0.01)).toBe(true);
+      expect(rows.some((r) => r.minTemperature >= 60 && r.chance >= 0.02)).toBe(true);
+    }
   });
 });
