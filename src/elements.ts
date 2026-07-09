@@ -93,13 +93,36 @@ export function getElementByName(name: string): ElementDef {
 }
 
 export function materialProperties(): Float32Array {
-  const data = new Float32Array(ELEMENTS.length * 4);
+  const data = new Float32Array(ELEMENTS.length * 8);
   for (const element of ELEMENTS) {
-    const offset = element.id * 4;
-    data[offset] = element.density;
+    const offset = element.id * 8;
+    data[offset + 0] = element.density;             // sim density (unchanged)
     data[offset + 1] = element.thermalConductivity;
     data[offset + 2] = element.heatCapacity;
-    data[offset + 3] = 0;
+    data[offset + 3] = element.ignitionTemp ?? 0;
+    data[offset + 4] = element.burnProduct ?? 0;
+    data[offset + 5] = element.burnRate ?? 0;
+    data[offset + 6] = 0; // reserved (Phase 2: corrosiveStrength)
+    data[offset + 7] = 0; // reserved (Phase 2: solubility)
+  }
+  return data;
+}
+
+const FORM_BITS: Record<Form, number> = { static: 0, powder: 1, liquid: 2, gas: 3 };
+
+/** Packs each material's form (bits 0-1) + capability/taxonomy flags into one u32.
+ * Mirrored in simulate.wgsl. */
+export function materialFlags(): Uint32Array {
+  const data = new Uint32Array(ELEMENTS.length);
+  for (const element of ELEMENTS) {
+    let f = FORM_BITS[element.form];
+    if (element.flammable) f |= 1 << 2;
+    if (element.corrosive) f |= 1 << 3;
+    if (element.soluble) f |= 1 << 4;
+    if (element.conductive) f |= 1 << 5;
+    if (element.origin === 'organic') f |= 1 << 6;
+    if (element.metallic === 'metal') f |= 1 << 7;
+    data[element.id] = f >>> 0;
   }
   return data;
 }
