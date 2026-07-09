@@ -5,6 +5,7 @@
 //   10=Obsidian 11=Sulfuric Acid (Dilute) 12=Copper 13=Copper Sulfate 14=Hydrogen
 //   15=Sulfuric Acid (Very Dilute) 16=Sulfuric Acid (Concentrated)
 //   17=Sulfuric Acid (Fuming) 18=Sulfur Dioxide
+//   19=Damp Sand 20=Wet Sand 21=Saturated Sand
 //
 // Each grid cell is a Cell{elementId, enthalpy} struct. Enthalpy (not raw
 // temperature) is the stored quantity - see the "Latent heat" section below
@@ -90,6 +91,9 @@ const ACID_VERY_DILUTE: u32 = 15u;
 const ACID_CONCENTRATED: u32 = 16u;
 const ACID_FUMING: u32 = 17u;
 const SULFUR_DIOXIDE: u32 = 18u;
+const DAMP_SAND: u32 = 19u;
+const WET_SAND: u32 = 20u;
+const SATURATED_SAND: u32 = 21u;
 const NO_NEIGHBOR: u32 = 0xffffffffu;
 // Sentinel for "no minimum temperature gate" written by reactions.ts's
 // reactionData() - must stay in sync with its NO_MIN_TEMPERATURE export.
@@ -109,7 +113,8 @@ fn heatCapacityOf(id: u32) -> f32 {
 
 fn isPowderOrLiquid(id: u32) -> bool {
   return id == SAND || id == WATER || id == LAVA || id == ACID || id == COPPER_SULFATE
-      || id == ACID_VERY_DILUTE || id == ACID_CONCENTRATED || id == ACID_FUMING;
+      || id == ACID_VERY_DILUTE || id == ACID_CONCENTRATED || id == ACID_FUMING
+      || id == DAMP_SAND || id == WET_SAND || id == SATURATED_SAND;
 }
 
 fn isGas(id: u32) -> bool {
