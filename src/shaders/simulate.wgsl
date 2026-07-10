@@ -168,10 +168,10 @@ fn hash(x: u32, y: u32, frame: u32) -> u32 {
 // straight vertical pair (a,c) / (b,d) and, applied diagonally, for the
 // crossed pair (a,d) / (b,c).
 fn shouldSwapVertical(topVal: u32, bottomVal: u32) -> bool {
-  // Liquid free-fall into air/gas is owned by the fluidity-gated liquidMovement.
-  if (isLiquid(topVal) && (bottomVal == EMPTY || isGas(bottomVal))) {
-    return false;
-  }
+  // Liquids fall under gravity here (fast, like powders) so a thick liquid
+  // reaches the floor before it can crust; viscosity only resists LATERAL flow
+  // (shouldSwapHorizontal defers liquid leveling to the fluidity-gated
+  // liquidMovement, so thick liquids still mound instead of spreading flat).
   if (isPowderOrLiquid(topVal) && density(topVal) > density(bottomVal)) {
     return true;
   }
@@ -307,7 +307,7 @@ fn liquidDripInto(topVal: u32, bottomVal: u32) -> bool {
 
 const VISC_TREF: f32 = 20.0;
 const VISC_HALF: f32 = 200.0;
-const FLUID_MIN_DRIP: f32 = 0.02;
+const FLUID_MIN_DRIP: f32 = 0.2;
 const VISC_LOG_MIN: f32 = -1.0;
 const VISC_LOG_MAX: f32 = 14.0;
 
