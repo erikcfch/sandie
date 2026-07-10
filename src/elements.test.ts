@@ -399,3 +399,21 @@ describe('wax', () => {
     expect(wax.formula).toBeUndefined();
   });
 });
+
+describe('viscosity data', () => {
+  it('sets a viscosity curve on liquids, ordered water < acids < wax < lava', () => {
+    const refLog = (n: string) => getElementByName(n).viscosityRefLog10;
+    expect(refLog('Water')).toBe(0);
+    expect(refLog('Sulfuric Acid (Concentrated)')!).toBeGreaterThan(refLog('Sulfuric Acid (Dilute)')!);
+    expect(refLog('Molten Wax')!).toBeGreaterThan(refLog('Sulfuric Acid (Fuming)')!);
+    expect(refLog('Lava')!).toBeGreaterThan(refLog('Molten Wax')!);
+  });
+  it('gives Lava and Molten Wax a negative temperature coefficient (thinner when hotter)', () => {
+    expect(getElementByName('Lava').viscosityTempCoeff!).toBeLessThan(0);
+    expect(getElementByName('Molten Wax').viscosityTempCoeff!).toBeLessThan(0);
+  });
+  it('leaves non-liquids without a viscosity curve', () => {
+    expect(getElementByName('Sand').viscosityRefLog10).toBeUndefined();
+    expect(getElementByName('Stone').viscosityRefLog10).toBeUndefined();
+  });
+});
