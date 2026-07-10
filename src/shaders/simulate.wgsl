@@ -168,6 +168,10 @@ fn hash(x: u32, y: u32, frame: u32) -> u32 {
 // straight vertical pair (a,c) / (b,d) and, applied diagonally, for the
 // crossed pair (a,d) / (b,c).
 fn shouldSwapVertical(topVal: u32, bottomVal: u32) -> bool {
+  // Liquid free-fall into air/gas is owned by the fluidity-gated liquidMovement.
+  if (isLiquid(topVal) && (bottomVal == EMPTY || isGas(bottomVal))) {
+    return false;
+  }
   if (isPowderOrLiquid(topVal) && density(topVal) > density(bottomVal)) {
     return true;
   }
@@ -178,6 +182,13 @@ fn shouldSwapVertical(topVal: u32, bottomVal: u32) -> bool {
 }
 
 fn shouldSwapHorizontal(leftVal: u32, rightVal: u32) -> bool {
+  // Liquid leveling into empty is owned by the fluidity-gated liquidMovement.
+  if (isLiquid(leftVal) && rightVal == EMPTY) {
+    return false;
+  }
+  if (isLiquid(rightVal) && leftVal == EMPTY) {
+    return false;
+  }
   if (isLiquid(leftVal) && density(leftVal) > density(rightVal)) {
     return true;
   }
@@ -289,17 +300,38 @@ fn movement(@builtin(global_invocation_id) gid: vec3<u32>) {
   writeBuf[idxD] = d;
 }
 
-// Water-only vertical swap: water sinks into empty or gas directly below.
-fn waterShouldSwapV(topVal: u32, bottomVal: u32) -> bool {
-  return topVal == WATER && (bottomVal == EMPTY || isGas(bottomVal));
-}
-// Water-only horizontal swap: water spreads into adjacent empty space.
-fn waterShouldSwapH(leftVal: u32, rightVal: u32) -> bool {
-  return (leftVal == WATER && rightVal == EMPTY) || (rightVal == WATER && leftVal == EMPTY);
+// Any liquid drips into empty or gas directly below/diagonally.
+fn liquidDripInto(topVal: u32, bottomVal: u32) -> bool {
+  return isLiquid(topVal) && (bottomVal == EMPTY || isGas(bottomVal));
 }
 
+const VISC_TREF: f32 = 20.0;
+const VISC_HALF: f32 = 200.0;
+const FLUID_MIN_DRIP: f32 = 0.02;
+const VISC_LOG_MIN: f32 = -1.0;
+const VISC_LOG_MAX: f32 = 14.0;
+
+// Temperature-derived flow probability (viscosity), mirroring src/viscosity.ts:
+// thick liquids (cool lava) return ~0 so they mound; thin liquids (water, hot
+// lava) return ~1. IMPORTANT: temperature is a PROXY (enthalpy / heatCapacity),
+// NOT the chain-walk thermalFromEnthalpy - calling that walk from this compute
+// pass triggers a Dawn/WGSL codegen bug that corrupts the grid to Empty. The
+// proxy is offset from true temperature for chained liquids but is monotonic in
+// heat, which is all viscosity needs; the per-liquid coefficients are tuned to it.
+fn fluidityAt(id: u32, enthalpy: f32) -> f32 {
+  let t = enthalpy / heatCapacityOf(id);
+  let logv = clamp(refLog10ViscOf(id) + viscTempCoeffOf(id) * (t - VISC_TREF), VISC_LOG_MIN, VISC_LOG_MAX);
+  return VISC_HALF / (VISC_HALF + pow(10.0, logv));
+}
+
+// Every liquid levels and drips here, each move gated by the cell's
+// temperature-derived fluidity. Water (~1) still levels fast; cool lava (~0)
+// mounds. Vertical drip is floored (FLUID_MIN_DRIP) so a liquid over empty
+// always eventually falls; horizontal leveling can gate to ~0 so thick liquids
+// hold a pile. Only motion into empty/gas happens here - cross-material buoyancy
+// stays in movement().
 @compute @workgroup_size(8, 8)
-fn waterMovement(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn liquidMovement(@builtin(global_invocation_id) gid: vec3<u32>) {
   let width = i32(params.width);
   let height = i32(params.height);
   let x = i32(gid.x);
@@ -322,14 +354,30 @@ fn waterMovement(@builtin(global_invocation_id) gid: vec3<u32>) {
   let idxD = cellIndex(blockX + 1, blockY + 1, width);
   var a = readBuf[idxA]; var b = readBuf[idxB]; var c = readBuf[idxC]; var d = readBuf[idxD];
 
-  let movedLeft = waterShouldSwapV(a.elementId, c.elementId);
-  if (movedLeft) { let t = a; a = c; c = t; }
-  let movedRight = waterShouldSwapV(b.elementId, d.elementId);
-  if (movedRight) { let t = b; b = d; d = t; }
-  if (!movedLeft && waterShouldSwapV(a.elementId, d.elementId)) { let t = a; a = d; d = t; }
-  if (!movedRight && waterShouldSwapV(b.elementId, c.elementId)) { let t = b; b = c; c = t; }
-  if (waterShouldSwapH(a.elementId, b.elementId)) { let t = a; a = b; b = t; }
-  if (waterShouldSwapH(c.elementId, d.elementId)) { let t = c; c = d; d = t; }
+  // Per-cell fluidity, computed once. da/db floor the vertical drip.
+  let fa = fluidityAt(a.elementId, a.enthalpy);
+  let fb = fluidityAt(b.elementId, b.enthalpy);
+  let fc = fluidityAt(c.elementId, c.enthalpy);
+  let fd = fluidityAt(d.elementId, d.enthalpy);
+  let da = max(FLUID_MIN_DRIP, fa);
+  let db = max(FLUID_MIN_DRIP, fb);
+
+  let vRollAC = f32(hash(u32(blockX), u32(blockY), params.frame) & 0xffffu) / 65536.0;
+  var movedLeft = false;
+  if (liquidDripInto(a.elementId, c.elementId) && vRollAC < da) { let t = a; a = c; c = t; movedLeft = true; }
+  let vRollBD = f32(hash(u32(blockX + 1), u32(blockY), params.frame) & 0xffffu) / 65536.0;
+  var movedRight = false;
+  if (liquidDripInto(b.elementId, d.elementId) && vRollBD < db) { let t = b; b = d; d = t; movedRight = true; }
+  let dRollAD = f32(hash(u32(blockX) + 7u, u32(blockY) + 13u, params.frame) & 0xffffu) / 65536.0;
+  if (!movedLeft && liquidDripInto(a.elementId, d.elementId) && dRollAD < da) { let t = a; a = d; d = t; }
+  let dRollBC = f32(hash(u32(blockX) + 17u, u32(blockY) + 19u, params.frame) & 0xffffu) / 65536.0;
+  if (!movedRight && liquidDripInto(b.elementId, c.elementId) && dRollBC < db) { let t = b; b = c; c = t; }
+  let hRollAB = f32(hash(u32(blockX) + 31u, u32(blockY) + 23u, params.frame) & 0xffffu) / 65536.0;
+  if (isLiquid(a.elementId) && b.elementId == EMPTY && hRollAB < fa) { let t = a; a = b; b = t; }
+  else if (isLiquid(b.elementId) && a.elementId == EMPTY && hRollAB < fb) { let t = a; a = b; b = t; }
+  let hRollCD = f32(hash(u32(blockX) + 53u, u32(blockY) + 71u, params.frame) & 0xffffu) / 65536.0;
+  if (isLiquid(c.elementId) && d.elementId == EMPTY && hRollCD < fc) { let t = c; c = d; d = t; }
+  else if (isLiquid(d.elementId) && c.elementId == EMPTY && hRollCD < fd) { let t = c; c = d; d = t; }
 
   writeBuf[idxA] = a; writeBuf[idxB] = b; writeBuf[idxC] = c; writeBuf[idxD] = d;
 }

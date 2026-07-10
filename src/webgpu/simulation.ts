@@ -1,5 +1,5 @@
 import { chainCountOf, chainData, chainStartOf } from '../chains';
-import { GRID_HEIGHT, GRID_WIDTH, TICKS_PER_FRAME, WATER_SUBSTEPS, WORKGROUP_SIZE } from '../config';
+import { GRID_HEIGHT, GRID_WIDTH, TICKS_PER_FRAME, LIQUID_SUBSTEPS, WORKGROUP_SIZE } from '../config';
 import {
   AMBIENT_TEMP as ELEMENT_AMBIENT_TEMP,
   ELEMENTS,
@@ -27,8 +27,8 @@ const SIM_PARAMS_BYTES = 24; // SimParams{width, height, frame, ambientTemp, rea
 // One SimParams slot per block-CA dispatch that needs its own frame value:
 // TICKS_PER_FRAME movement/heat ticks (movement+heat within a tick share a
 // slot) + 1 soak pass + 1 corrode pass (its own slot for a distinct Margolus
-// alignment) + WATER_SUBSTEPS water-leveling passes.
-const SIM_SLOTS = TICKS_PER_FRAME + 2 + WATER_SUBSTEPS;
+// alignment) + LIQUID_SUBSTEPS liquid-leveling passes.
+const SIM_SLOTS = TICKS_PER_FRAME + 2 + LIQUID_SUBSTEPS;
 
 export interface PaintInput {
   active: boolean;
@@ -78,7 +78,7 @@ export class Simulation {
 
   private readonly movementPipeline: GPUComputePipeline;
   private readonly heatPipeline: GPUComputePipeline;
-  private readonly waterMovementPipeline: GPUComputePipeline;
+  private readonly liquidMovementPipeline: GPUComputePipeline;
   private readonly soakPipeline: GPUComputePipeline;
   private readonly corrodePipeline: GPUComputePipeline;
   private readonly paintPipeline: GPUComputePipeline;
@@ -195,9 +195,9 @@ export class Simulation {
       layout: simPipelineLayout,
       compute: { module: simModule, entryPoint: 'heat' },
     });
-    this.waterMovementPipeline = device.createComputePipeline({
+    this.liquidMovementPipeline = device.createComputePipeline({
       layout: simPipelineLayout,
-      compute: { module: simModule, entryPoint: 'waterMovement' },
+      compute: { module: simModule, entryPoint: 'liquidMovement' },
     });
     this.soakPipeline = device.createComputePipeline({
       layout: simPipelineLayout,
@@ -385,8 +385,8 @@ export class Simulation {
         };
         dispatchSim(this.soakPipeline, TICKS_PER_FRAME);
         dispatchSim(this.corrodePipeline, TICKS_PER_FRAME + 1);
-        for (let s = 0; s < WATER_SUBSTEPS; s++) {
-          dispatchSim(this.waterMovementPipeline, TICKS_PER_FRAME + 2 + s);
+        for (let s = 0; s < LIQUID_SUBSTEPS; s++) {
+          dispatchSim(this.liquidMovementPipeline, TICKS_PER_FRAME + 2 + s);
         }
 
         this.frame += SIM_SLOTS;
