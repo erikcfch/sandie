@@ -55,12 +55,37 @@ needs to feel alive.
 
 ---
 
-## Sub-phase 3a — Values adoption (TS-only, foundational)
+## Sub-phase 3a — Values adoption (TS-only, foundational) — ✅ DONE (2026-07-10, branch `material-values`)
 
 **Goal:** the sim *derives* movement density and thermal capacity from each
 material's real scientific values, instead of hand-tuned game numbers. Purely a
 data change — the shader still reads `density(id)` / `heatCapacityOf(id)` exactly
 as today; only the numbers in the buffer change. **No new WGSL control flow.**
+
+**As built (decisions locked during implementation + in-browser verification):**
+- New pure leaf `src/density.ts`: `normalizedDensity(realDensity)` (monotonic log
+  map, **no rounding** — float, so near-equal densities stay strictly ordered) +
+  `simDensity(form, realDensity)`. Constants: `SIM_DENSITY_LO=1`,
+  `SIM_DENSITY_HI=95`, `DENSITY_LOG_MIN=-4.1`, `DENSITY_LOG_MAX=1.3`,
+  `BARRIER_DENSITY=100`.
+- **Static-barrier rule (key correctness fix):** static solids are barriers only
+  because their old game density was 90–100; real densities would let sand sink
+  through wood/ice and lava leak through stone. So `simDensity` gives static
+  solids the `BARRIER_DENSITY` sentinel (Empty → 0) and only movable
+  (powder/liquid/gas) materials derive from real density. Barrier integrity
+  verified (max movable 84.89 < 100), confirmed in headed Chrome (sand rests on
+  wood + ice).
+- The `density` and `heatCapacity` hand-tuned `ElementDef` fields were **removed**;
+  `realDensity` and `specificHeat` are now required and are the single source of
+  truth (`materialProperties()` derives the buffer values; `thermal.ts` /
+  `phaseTransitions.ts` read `specificHeat`).
+- **User decision (lava-powder flip):** ACCEPT — sand/powders float on lava under
+  real densities (molten rock is denser); no per-material override added.
+- Verified in headed Chrome: barriers hold, sand floats on lava, no grid wipe, no
+  console errors; heat map decodes correctly (grey ambient / red lava / blue ice)
+  and phase chains fire (Ice→Water→Steam, Lava→Stone). 156 unit tests green,
+  typecheck + build clean, 6/7 e2e behavior tests pass (the 1 failure — profiler
+  backtick toggle — is pre-existing and unrelated, identical to master).
 
 ### Density normalization
 
@@ -70,12 +95,13 @@ densities span ~4.5 orders of magnitude (Fire ≈ 3e-4 g/cm³ → Gold 19.3), so
 ratios:
 
 ```
-simDensity(ρ) = clamp( round( LO + (log10(ρ) - LOG_MIN) / (LOG_MAX - LOG_MIN) * (HI - LO) ), LO, HI )
+normalizedDensity(ρ) = clamp( LO + (log10(ρ) - LOG_MIN) / (LOG_MAX - LOG_MIN) * (HI - LO), LO, HI )   // no rounding — stays float
 ```
 
-with `LOG_MIN`/`LOG_MAX` spanning the real range (≈ −3.5 … 1.3) and `[LO, HI]`
-the existing movement band (≈ 1 … 100). Empty stays 0. The function is a pure,
-unit-tested leaf (new `density.ts`, mirroring `viscosity.ts`/`thermal.ts`).
+with `LOG_MIN=-4.1`/`LOG_MAX=1.3` spanning the real range and `[LO, HI]=[1, 95]`
+the movable band (kept below `BARRIER_DENSITY=100`; static solids use that
+sentinel, Empty stays 0). The function is a pure, unit-tested leaf (`density.ts`,
+mirroring `viscosity.ts`/`thermal.ts`).
 
 **Expected behavior changes to verify + accept-or-clamp (regression surface):**
 Most orderings are preserved (gas < liquid < powder/solid follows real density),
