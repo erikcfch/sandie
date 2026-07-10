@@ -95,12 +95,12 @@ describe('ELEMENTS table', () => {
   it('gives every element a positive thermalConductivity and heatCapacity', () => {
     for (const element of ELEMENTS) {
       expect(element.thermalConductivity).toBeGreaterThan(0);
-      expect(element.heatCapacity).toBeGreaterThan(0);
+      expect(element.specificHeat).toBeGreaterThan(0);
     }
   });
 
   it('gives Water a much higher heatCapacity than Stone, so it acts as a thermal buffer/coolant', () => {
-    expect(getElementByName('Water').heatCapacity).toBeGreaterThan(getElementByName('Stone').heatCapacity * 2);
+    expect(getElementByName('Water').specificHeat).toBeGreaterThan(getElementByName('Stone').specificHeat * 2);
   });
 
   it('gives Wood a lower thermalConductivity than Stone, so it insulates', () => {
@@ -111,7 +111,7 @@ describe('ELEMENTS table', () => {
     const obsidian = getElementByName('Obsidian');
     const stone = getElementByName('Stone');
     expect(obsidian.category).toBe('static');
-    expect(obsidian.heatCapacity).toBe(stone.heatCapacity);
+    expect(obsidian.specificHeat).toBe(stone.specificHeat);
     expect(obsidian.thermalConductivity).toBe(stone.thermalConductivity);
   });
 
@@ -183,7 +183,7 @@ describe('materialProperties', () => {
     const offset = water.id * 16;
     expect(props[offset]).toBeCloseTo(simDensity(water.form, water.realDensity));
     expect(props[offset + 1]).toBeCloseTo(water.thermalConductivity);
-    expect(props[offset + 2]).toBeCloseTo(water.heatCapacity);
+    expect(props[offset + 2]).toBeCloseTo(water.specificHeat);
   });
 
   it('packs the viscosity curve at offsets 12-13 for liquids', () => {
@@ -245,10 +245,10 @@ describe('Chem elements', () => {
   });
 
   it('decreases acid heatCapacity with concentration (less water = less thermal buffering)', () => {
-    const veryDilute = getElementByName('Sulfuric Acid (Very Dilute)').heatCapacity;
-    const dilute = getElementByName('Sulfuric Acid (Dilute)').heatCapacity;
-    const concentrated = getElementByName('Sulfuric Acid (Concentrated)').heatCapacity;
-    const fuming = getElementByName('Sulfuric Acid (Fuming)').heatCapacity;
+    const veryDilute = getElementByName('Sulfuric Acid (Very Dilute)').specificHeat;
+    const dilute = getElementByName('Sulfuric Acid (Dilute)').specificHeat;
+    const concentrated = getElementByName('Sulfuric Acid (Concentrated)').specificHeat;
+    const fuming = getElementByName('Sulfuric Acid (Fuming)').specificHeat;
     expect(veryDilute).toBeGreaterThan(dilute);
     expect(dilute).toBeGreaterThan(concentrated);
     expect(concentrated).toBeGreaterThan(fuming);
@@ -335,7 +335,7 @@ describe('GPU material serializers', () => {
     const o = wood.id * 16;
     expect(data[o + 0]).toBeCloseTo(simDensity(wood.form, wood.realDensity));
     expect(data[o + 1]).toBeCloseTo(wood.thermalConductivity);
-    expect(data[o + 2]).toBeCloseTo(wood.heatCapacity);
+    expect(data[o + 2]).toBeCloseTo(wood.specificHeat);
     expect(data[o + 3]).toBe(300);
     expect(data[o + 4]).toBe(getElementByName('Fire').id);
     expect(data[o + 5]).toBe(1);

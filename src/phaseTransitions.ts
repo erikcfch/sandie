@@ -54,14 +54,14 @@ export function getChain(elementId: number): Chain | undefined {
     downTransition = PHASE_TRANSITIONS.find((t) => t.highElementId === coldest);
   }
 
-  const segments: ChainSegment[] = [{ elementId: coldest, heatCapacity: getElement(coldest).heatCapacity }];
+  const segments: ChainSegment[] = [{ elementId: coldest, heatCapacity: getElement(coldest).specificHeat }];
   const transitions: PhaseTransition[] = [];
   let current = coldest;
   let upTransition = PHASE_TRANSITIONS.find((t) => t.lowElementId === current);
   while (upTransition) {
     transitions.push(upTransition);
     current = upTransition.highElementId;
-    segments.push({ elementId: current, heatCapacity: getElement(current).heatCapacity });
+    segments.push({ elementId: current, heatCapacity: getElement(current).specificHeat });
     upTransition = PHASE_TRANSITIONS.find((t) => t.lowElementId === current);
   }
 
