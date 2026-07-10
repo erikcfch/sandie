@@ -162,19 +162,27 @@ describe('colorPalette', () => {
 });
 
 describe('materialProperties', () => {
-  it('returns 12 floats (density, thermalConductivity, heatCapacity, ignitionTemp, burnProduct, burnRate, corrosiveStrength, solubility, dissolvedProduct, weakensTo, reserved, reserved) per element, indexed by element id', () => {
+  it('returns 16 floats per element (12 existing + viscosityRefLog10, viscosityTempCoeff, 2 reserved), indexed by element id', () => {
     const props = materialProperties();
-    expect(props).toBeInstanceOf(Float32Array);
-    expect(props.length).toBe(ELEMENTS.length * 12);
+    expect(props.length).toBe(ELEMENTS.length * 16);
   });
 
   it('places each element density, thermalConductivity, and heatCapacity at its id offset', () => {
     const water = getElementByName('Water');
     const props = materialProperties();
-    const offset = water.id * 12;
+    const offset = water.id * 16;
     expect(props[offset]).toBeCloseTo(water.density);
     expect(props[offset + 1]).toBeCloseTo(water.thermalConductivity);
     expect(props[offset + 2]).toBeCloseTo(water.heatCapacity);
+  });
+
+  it('packs the viscosity curve at offsets 12-13 for liquids', () => {
+    const props = materialProperties();
+    const lava = getElementByName('Lava');
+    expect(props[lava.id * 16 + 12]).toBeCloseTo(lava.viscosityRefLog10!);
+    expect(props[lava.id * 16 + 13]).toBeCloseTo(lava.viscosityTempCoeff!);
+    const sand = getElementByName('Sand');
+    expect(props[sand.id * 16 + 12]).toBe(0); // non-liquid: unused
   });
 });
 
@@ -314,16 +322,16 @@ describe('capabilities and reference values', () => {
 describe('GPU material serializers', () => {
   it('materials buffer is 12 floats/element with unchanged sim values + flammability params', () => {
     const data = materialProperties();
-    expect(data.length).toBe(ELEMENTS.length * 12);
+    expect(data.length).toBe(ELEMENTS.length * 16);
     const wood = getElementByName('Wood');
-    const o = wood.id * 12;
+    const o = wood.id * 16;
     expect(data[o + 0]).toBe(wood.density);
     expect(data[o + 1]).toBeCloseTo(wood.thermalConductivity);
     expect(data[o + 2]).toBeCloseTo(wood.heatCapacity);
     expect(data[o + 3]).toBe(300);
     expect(data[o + 4]).toBe(getElementByName('Fire').id);
     expect(data[o + 5]).toBe(1);
-    const stoneO = getElementByName('Stone').id * 12;
+    const stoneO = getElementByName('Stone').id * 16;
     expect(data[stoneO + 3]).toBe(0);
   });
   it('materialFlags packs form in bits 0-1 and capabilities above', () => {
@@ -372,18 +380,18 @@ describe('corrosion demo materials', () => {
 describe('materials serializer with corrosion params', () => {
   it('is 12 floats/element with corrosion params in the documented slots', () => {
     const data = materialProperties();
-    expect(data.length).toBe(ELEMENTS.length * 12);
+    expect(data.length).toBe(ELEMENTS.length * 16);
     const conc = getElementByName('Sulfuric Acid (Concentrated)');
-    const o = conc.id * 12;
+    const o = conc.id * 16;
     expect(data[o + 0]).toBe(conc.density);
     expect(data[o + 6]).toBe(3);            // corrosiveStrength
     expect(data[o + 9]).toBe(getElementByName('Sulfuric Acid (Dilute)').id); // weakensTo
     const lime = getElementByName('Limestone');
-    const lo = lime.id * 12;
+    const lo = lime.id * 16;
     expect(data[lo + 7]).toBe(2);           // solubility
     expect(data[lo + 8]).toBe(getElementByName('CO₂').id); // dissolvedProduct
     const stone = getElementByName('Stone');
-    expect(data[stone.id * 12 + 9]).toBe(stone.id); // no weakensTo -> own id
+    expect(data[stone.id * 16 + 9]).toBe(stone.id); // no weakensTo -> own id
   });
 });
 
@@ -397,5 +405,23 @@ describe('wax', () => {
     expect(wax.origin).toBe('organic');
     expect(wax.meltingPoint).toBe(60);
     expect(wax.formula).toBeUndefined();
+  });
+});
+
+describe('viscosity data', () => {
+  it('sets a viscosity curve on liquids, ordered water < acids < wax < lava', () => {
+    const refLog = (n: string) => getElementByName(n).viscosityRefLog10;
+    expect(refLog('Water')).toBe(0);
+    expect(refLog('Sulfuric Acid (Concentrated)')!).toBeGreaterThan(refLog('Sulfuric Acid (Dilute)')!);
+    expect(refLog('Molten Wax')!).toBeGreaterThan(refLog('Sulfuric Acid (Fuming)')!);
+    expect(refLog('Lava')!).toBeGreaterThan(refLog('Molten Wax')!);
+  });
+  it('gives Lava and Molten Wax a negative temperature coefficient (thinner when hotter)', () => {
+    expect(getElementByName('Lava').viscosityTempCoeff!).toBeLessThan(0);
+    expect(getElementByName('Molten Wax').viscosityTempCoeff!).toBeLessThan(0);
+  });
+  it('leaves non-liquids without a viscosity curve', () => {
+    expect(getElementByName('Sand').viscosityRefLog10).toBeUndefined();
+    expect(getElementByName('Stone').viscosityRefLog10).toBeUndefined();
   });
 });

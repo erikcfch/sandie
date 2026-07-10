@@ -17,15 +17,15 @@ struct RenderParams {
 @group(0) @binding(0) var<uniform> params: RenderParams;
 @group(0) @binding(1) var<storage, read> grid: array<Cell>;
 @group(0) @binding(2) var<storage, read> palette: array<vec4<f32>>;
-@group(0) @binding(3) var<storage, read> materials: array<vec4<f32>>; // (density, thermalConductivity, heatCapacity, unused)
+@group(0) @binding(3) var<storage, read> materials: array<vec4<f32>>; // 4 vec4/element; see src/elements.ts materialProperties()
 @group(0) @binding(4) var<storage, read> chains: array<vec4<f32>>;
 
 fn heatCapacityOf(id: u32) -> f32 {
-  return materials[id * 3u].z;
+  return materials[id * 4u].z;
 }
 
-fn chainStartOf(id: u32) -> u32 { return u32(materials[id * 3u + 2u].z); }
-fn chainCountOf(id: u32) -> u32 { return u32(materials[id * 3u + 2u].w); }
+fn chainStartOf(id: u32) -> u32 { return u32(materials[id * 4u + 2u].z); }
+fn chainCountOf(id: u32) -> u32 { return u32(materials[id * 4u + 2u].w); }
 
 fn temperatureFromEnthalpy(elementId: u32, enthalpy: f32) -> f32 {
   let count = chainCountOf(elementId);
