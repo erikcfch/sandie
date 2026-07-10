@@ -2,7 +2,7 @@ import { getElement } from './elements';
 
 export const VISC_TREF = 20;
 export const VISC_HALF = 200;
-export const FLUID_MIN_DRIP = 0.02;
+export const FLUID_MIN_DRIP = 0.2;
 export const VISC_LOG_MIN = -1;
 export const VISC_LOG_MAX = 14;
 
