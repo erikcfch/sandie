@@ -63,7 +63,7 @@ struct SimParams {
 @group(0) @binding(0) var<uniform> params: SimParams;
 @group(0) @binding(1) var<storage, read> readBuf: array<Cell>;
 @group(0) @binding(2) var<storage, read_write> writeBuf: array<Cell>;
-@group(0) @binding(3) var<storage, read> materials: array<vec4<f32>>; // (density, thermalConductivity, heatCapacity, unused)
+@group(0) @binding(3) var<storage, read> materials: array<vec4<f32>>; // 4 vec4/element; see src/elements.ts materialProperties()
 // Data-driven contact reactions built from src/reactions.ts's CONTACT_REACTIONS
 // (see reactionData()) - 2 vec4s per reaction: (reactant, catalystNeighbor,
 // product, chance) then (enthalpyDelta, minTemperature, unused, unused).
@@ -105,18 +105,20 @@ const NO_NEIGHBOR: u32 = 0xffffffffu;
 // reactionData() - must stay in sync with its NO_MIN_TEMPERATURE export.
 const NO_MIN_TEMPERATURE: f32 = -999.0;
 
-fn density(id: u32) -> f32 { return materials[id * 3u].x; }
-fn conductivityOf(id: u32) -> f32 { return materials[id * 3u].y; }
-fn heatCapacityOf(id: u32) -> f32 { return materials[id * 3u].z; }
-fn ignitionTempOf(id: u32) -> f32 { return materials[id * 3u].w; }
-fn burnProductOf(id: u32) -> u32 { return u32(materials[id * 3u + 1u].x); }
-fn burnRateOf(id: u32) -> f32 { return materials[id * 3u + 1u].y; }
-fn corrosiveStrengthOf(id: u32) -> f32 { return materials[id * 3u + 1u].z; }
-fn solubilityOf(id: u32) -> f32 { return materials[id * 3u + 1u].w; }
-fn dissolvedProductOf(id: u32) -> u32 { return u32(materials[id * 3u + 2u].x); }
-fn weakensToOf(id: u32) -> u32 { return u32(materials[id * 3u + 2u].y); }
-fn chainStartOf(id: u32) -> u32 { return u32(materials[id * 3u + 2u].z); }
-fn chainCountOf(id: u32) -> u32 { return u32(materials[id * 3u + 2u].w); }
+fn density(id: u32) -> f32 { return materials[id * 4u].x; }
+fn conductivityOf(id: u32) -> f32 { return materials[id * 4u].y; }
+fn heatCapacityOf(id: u32) -> f32 { return materials[id * 4u].z; }
+fn ignitionTempOf(id: u32) -> f32 { return materials[id * 4u].w; }
+fn burnProductOf(id: u32) -> u32 { return u32(materials[id * 4u + 1u].x); }
+fn burnRateOf(id: u32) -> f32 { return materials[id * 4u + 1u].y; }
+fn corrosiveStrengthOf(id: u32) -> f32 { return materials[id * 4u + 1u].z; }
+fn solubilityOf(id: u32) -> f32 { return materials[id * 4u + 1u].w; }
+fn dissolvedProductOf(id: u32) -> u32 { return u32(materials[id * 4u + 2u].x); }
+fn weakensToOf(id: u32) -> u32 { return u32(materials[id * 4u + 2u].y); }
+fn chainStartOf(id: u32) -> u32 { return u32(materials[id * 4u + 2u].z); }
+fn chainCountOf(id: u32) -> u32 { return u32(materials[id * 4u + 2u].w); }
+fn refLog10ViscOf(id: u32) -> f32 { return materials[id * 4u + 3u].x; }
+fn viscTempCoeffOf(id: u32) -> f32 { return materials[id * 4u + 3u].y; }
 
 const FORM_POWDER: u32 = 1u;
 const FORM_LIQUID: u32 = 2u;

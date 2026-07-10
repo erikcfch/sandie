@@ -111,9 +111,9 @@ export function getElementByName(name: string): ElementDef {
 }
 
 export function materialProperties(): Float32Array {
-  const data = new Float32Array(ELEMENTS.length * 12);
+  const data = new Float32Array(ELEMENTS.length * 16);
   for (const element of ELEMENTS) {
-    const offset = element.id * 12;
+    const offset = element.id * 16;
     data[offset + 0] = element.density;
     data[offset + 1] = element.thermalConductivity;
     data[offset + 2] = element.heatCapacity;
@@ -126,6 +126,10 @@ export function materialProperties(): Float32Array {
     data[offset + 9] = element.weakensTo ?? element.id; // self = does not deplete
     data[offset + 10] = 0;
     data[offset + 11] = 0;
+    data[offset + 12] = element.viscosityRefLog10 ?? 0;
+    data[offset + 13] = element.viscosityTempCoeff ?? 0;
+    data[offset + 14] = 0;
+    data[offset + 15] = 0;
   }
   return data;
 }

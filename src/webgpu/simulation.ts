@@ -117,8 +117,8 @@ export class Simulation {
     this.paletteBuffer = this.createStorageBuffer('palette', colorPalette());
     const mats = materialProperties();
     for (const element of ELEMENTS) {
-      mats[element.id * 12 + 10] = chainStartOf(element.id);
-      mats[element.id * 12 + 11] = chainCountOf(element.id);
+      mats[element.id * 16 + 10] = chainStartOf(element.id);
+      mats[element.id * 16 + 11] = chainCountOf(element.id);
     }
     this.materialsBuffer = this.createStorageBuffer('materials', mats);
     this.chainsBuffer = this.createStorageBuffer('chains', chainData());
