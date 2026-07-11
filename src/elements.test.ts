@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ELEMENTS, colorPalette, getElement, getElementByName, materialProperties, materialFlags } from './elements';
+import { chainCountOf } from './chains';
 import { simDensity } from './density';
 
 const sim = (name: string) => {
@@ -454,5 +455,16 @@ describe('explosives', () => {
     const o = tnt.id * 16;
     expect(data[o + 14]).toBe(tnt.detonationTemp);
     expect(data[o + 15]).toBe(tnt.blastStrength);
+  });
+
+  // The blast pass encodes product enthalpy as temp*heatCapacity (blastProductEnthalpy),
+  // which is only correct for a CHAINLESS product. Guard the invariant so a future
+  // explosive/flammable whose burnProduct has a phase chain breaks loudly here, not silently.
+  it('every explosive/flammable burnProduct is chainless', () => {
+    for (const e of ELEMENTS) {
+      if ((e.explosive || e.flammable) && e.burnProduct !== undefined) {
+        expect(chainCountOf(e.burnProduct)).toBe(0);
+      }
+    }
   });
 });

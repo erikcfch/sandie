@@ -119,7 +119,7 @@ export class Simulation {
     });
     this.pressureFieldBuffer = device.createBuffer({
       label: 'pressure-field', size: CELL_COUNT * 4,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, // copy DESTINATION only (pressureNext -> here)
     });
     this.pressureNextBuffer = device.createBuffer({
       label: 'pressure-next', size: CELL_COUNT * 4,
