@@ -39,7 +39,7 @@ function buildBreakpoints(chain: Chain): PlateauBounds[] {
 export function enthalpyForTemperature(temperature: number, elementId: number): number {
   const chain = getChain(elementId);
   if (!chain) {
-    return temperature * getElement(elementId).heatCapacity;
+    return temperature * getElement(elementId).specificHeat;
   }
 
   const bounds = buildBreakpoints(chain);
@@ -75,7 +75,7 @@ export function temperatureAndElementFromEnthalpy(
 ): { temperature: number; elementId: number } {
   const chain = getChain(currentElementId);
   if (!chain) {
-    return { temperature: enthalpy / getElement(currentElementId).heatCapacity, elementId: currentElementId };
+    return { temperature: enthalpy / getElement(currentElementId).specificHeat, elementId: currentElementId };
   }
 
   const bounds = buildBreakpoints(chain);

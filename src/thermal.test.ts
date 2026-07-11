@@ -19,7 +19,7 @@ describe('non-chain elements (no phase transitions)', () => {
   });
 
   it('scales enthalpy by heat capacity', () => {
-    const cap = getElementByName('Sand').heatCapacity;
+    const cap = getElementByName('Sand').specificHeat;
     expect(enthalpyForTemperature(10, SAND)).toBeCloseTo(10 * cap);
   });
 });

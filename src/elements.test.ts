@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { ELEMENTS, colorPalette, getElement, getElementByName, materialProperties, materialFlags } from './elements';
+import { simDensity } from './density';
+
+const sim = (name: string) => {
+  const e = getElementByName(name);
+  return simDensity(e.form, e.realDensity);
+};
 
 describe('ELEMENTS table', () => {
   it('assigns each element a unique, contiguous id starting at 0', () => {
@@ -10,7 +16,7 @@ describe('ELEMENTS table', () => {
   it('gives Empty the "empty" category and zero density', () => {
     const empty = getElementByName('Empty');
     expect(empty.category).toBe('empty');
-    expect(empty.density).toBe(0);
+    expect(sim('Empty')).toBe(0);
   });
 
   it('categorizes Stone and Wood as static solids', () => {
@@ -31,11 +37,11 @@ describe('ELEMENTS table', () => {
   });
 
   it('gives Sand a higher density than Water, so sand sinks through water', () => {
-    expect(getElementByName('Sand').density).toBeGreaterThan(getElementByName('Water').density);
+    expect(sim('Sand')).toBeGreaterThan(sim('Water'));
   });
 
   it('gives Water a higher density than Smoke, so smoke rises through water-adjacent air', () => {
-    expect(getElementByName('Water').density).toBeGreaterThan(getElementByName('Smoke').density);
+    expect(sim('Water')).toBeGreaterThan(sim('Smoke'));
   });
 
   it('categorizes Ice as static, Lava as liquid, and Steam/Fire as gas', () => {
@@ -45,9 +51,9 @@ describe('ELEMENTS table', () => {
     expect(getElementByName('Fire').category).toBe('gas');
   });
 
-  it('gives Lava a density between Sand and Water, so sand sinks through lava and lava sinks below water', () => {
-    expect(getElementByName('Lava').density).toBeLessThan(getElementByName('Sand').density);
-    expect(getElementByName('Lava').density).toBeGreaterThan(getElementByName('Water').density);
+  it('gives Lava a real density above Water and above powders, so lava sinks below water and dense powders rest on it', () => {
+    expect(sim('Lava')).toBeGreaterThan(sim('Water'));
+    expect(sim('Lava')).toBeGreaterThan(sim('Sand'));
   });
 
   it('gives every element a defaultTemp', () => {
@@ -78,19 +84,23 @@ describe('ELEMENTS table', () => {
     expect(getElementByName('Fire').defaultTemp).toBeGreaterThan(300);
   });
 
-  it('gives Ice a density high enough to block powder/liquid, like Stone/Wood', () => {
-    expect(getElementByName('Ice').density).toBeGreaterThan(getElementByName('Sand').density);
-  });
-
-  it('gives every element a positive thermalConductivity and heatCapacity', () => {
-    for (const element of ELEMENTS) {
-      expect(element.thermalConductivity).toBeGreaterThan(0);
-      expect(element.heatCapacity).toBeGreaterThan(0);
+  it('gives static solids a barrier density above every movable, so powders/liquids cannot sink through them', () => {
+    for (const s of ['Ice', 'Stone', 'Wood', 'Obsidian', 'Copper']) {
+      for (const m of ['Sand', 'Water', 'Lava', 'Rust']) {
+        expect(sim(s)).toBeGreaterThan(sim(m));
+      }
     }
   });
 
-  it('gives Water a much higher heatCapacity than Stone, so it acts as a thermal buffer/coolant', () => {
-    expect(getElementByName('Water').heatCapacity).toBeGreaterThan(getElementByName('Stone').heatCapacity * 2);
+  it('gives every element a positive thermalConductivity and specificHeat', () => {
+    for (const element of ELEMENTS) {
+      expect(element.thermalConductivity).toBeGreaterThan(0);
+      expect(element.specificHeat).toBeGreaterThan(0);
+    }
+  });
+
+  it('gives Water a much higher specificHeat than Stone, so it acts as a thermal buffer/coolant', () => {
+    expect(getElementByName('Water').specificHeat).toBeGreaterThan(getElementByName('Stone').specificHeat * 2);
   });
 
   it('gives Wood a lower thermalConductivity than Stone, so it insulates', () => {
@@ -101,7 +111,7 @@ describe('ELEMENTS table', () => {
     const obsidian = getElementByName('Obsidian');
     const stone = getElementByName('Stone');
     expect(obsidian.category).toBe('static');
-    expect(obsidian.heatCapacity).toBe(stone.heatCapacity);
+    expect(obsidian.specificHeat).toBe(stone.specificHeat);
     expect(obsidian.thermalConductivity).toBe(stone.thermalConductivity);
   });
 
@@ -167,13 +177,13 @@ describe('materialProperties', () => {
     expect(props.length).toBe(ELEMENTS.length * 16);
   });
 
-  it('places each element density, thermalConductivity, and heatCapacity at its id offset', () => {
+  it('places each element density, thermalConductivity, and specificHeat at its id offset', () => {
     const water = getElementByName('Water');
     const props = materialProperties();
     const offset = water.id * 16;
-    expect(props[offset]).toBeCloseTo(water.density);
+    expect(props[offset]).toBeCloseTo(simDensity(water.form, water.realDensity));
     expect(props[offset + 1]).toBeCloseTo(water.thermalConductivity);
-    expect(props[offset + 2]).toBeCloseTo(water.heatCapacity);
+    expect(props[offset + 2]).toBeCloseTo(water.specificHeat);
   });
 
   it('packs the viscosity curve at offsets 12-13 for liquids', () => {
@@ -220,26 +230,25 @@ describe('Chem elements', () => {
   });
 
   it('gives Dilute Sulfuric Acid a density between Water and Lava', () => {
-    const acid = getElementByName('Sulfuric Acid (Dilute)');
-    expect(acid.density).toBeGreaterThan(getElementByName('Water').density);
-    expect(acid.density).toBeLessThan(getElementByName('Lava').density);
+    expect(sim('Sulfuric Acid (Dilute)')).toBeGreaterThan(sim('Water'));
+    expect(sim('Sulfuric Acid (Dilute)')).toBeLessThan(sim('Lava'));
   });
 
   it('increases acid density with concentration: Very Dilute < Dilute < Concentrated < Fuming', () => {
-    const veryDilute = getElementByName('Sulfuric Acid (Very Dilute)').density;
-    const dilute = getElementByName('Sulfuric Acid (Dilute)').density;
-    const concentrated = getElementByName('Sulfuric Acid (Concentrated)').density;
-    const fuming = getElementByName('Sulfuric Acid (Fuming)').density;
+    const veryDilute = sim('Sulfuric Acid (Very Dilute)');
+    const dilute = sim('Sulfuric Acid (Dilute)');
+    const concentrated = sim('Sulfuric Acid (Concentrated)');
+    const fuming = sim('Sulfuric Acid (Fuming)');
     expect(veryDilute).toBeLessThan(dilute);
     expect(dilute).toBeLessThan(concentrated);
     expect(concentrated).toBeLessThan(fuming);
   });
 
-  it('decreases acid heatCapacity with concentration (less water = less thermal buffering)', () => {
-    const veryDilute = getElementByName('Sulfuric Acid (Very Dilute)').heatCapacity;
-    const dilute = getElementByName('Sulfuric Acid (Dilute)').heatCapacity;
-    const concentrated = getElementByName('Sulfuric Acid (Concentrated)').heatCapacity;
-    const fuming = getElementByName('Sulfuric Acid (Fuming)').heatCapacity;
+  it('decreases acid specificHeat with concentration (less water = less thermal buffering)', () => {
+    const veryDilute = getElementByName('Sulfuric Acid (Very Dilute)').specificHeat;
+    const dilute = getElementByName('Sulfuric Acid (Dilute)').specificHeat;
+    const concentrated = getElementByName('Sulfuric Acid (Concentrated)').specificHeat;
+    const fuming = getElementByName('Sulfuric Acid (Fuming)').specificHeat;
     expect(veryDilute).toBeGreaterThan(dilute);
     expect(dilute).toBeGreaterThan(concentrated);
     expect(concentrated).toBeGreaterThan(fuming);
@@ -269,11 +278,10 @@ describe('wet-sand tiers', () => {
     const sat = getElementByName('Saturated Sand');
     expect([damp.id, wet.id, sat.id]).toEqual([19, 20, 21]);
     // Denser than water (so they sink through it) and increasing with wetness.
-    const water = getElementByName('Water');
-    for (const e of [sand, damp, wet, sat]) expect(e.density).toBeGreaterThan(water.density);
-    expect(sand.density).toBeLessThan(damp.density);
-    expect(damp.density).toBeLessThan(wet.density);
-    expect(wet.density).toBeLessThan(sat.density);
+    for (const e of [sand, damp, wet, sat]) expect(sim(e.name)).toBeGreaterThan(sim('Water'));
+    expect(sim('Sand')).toBeLessThan(sim('Damp Sand'));
+    expect(sim('Damp Sand')).toBeLessThan(sim('Wet Sand'));
+    expect(sim('Wet Sand')).toBeLessThan(sim('Saturated Sand'));
     for (const e of [damp, wet, sat]) expect(e.category).toBe('powder');
   });
 });
@@ -313,21 +321,21 @@ describe('capabilities and reference values', () => {
     expect(getElementByName('Copper').conductive).toBe(true);
   });
   it('records real reference densities (ice less dense than water; copper dense)', () => {
-    expect(getElementByName('Ice').realDensity!).toBeLessThan(getElementByName('Water').realDensity!);
-    expect(getElementByName('Copper').realDensity!).toBeGreaterThan(5);
+    expect(getElementByName('Ice').realDensity).toBeLessThan(getElementByName('Water').realDensity);
+    expect(getElementByName('Copper').realDensity).toBeGreaterThan(5);
     expect(getElementByName('Water').realDensity).toBeCloseTo(1.0, 1);
   });
 });
 
 describe('GPU material serializers', () => {
-  it('materials buffer is 12 floats/element with unchanged sim values + flammability params', () => {
+  it('materials buffer is 16 floats/element with unchanged sim values + flammability params', () => {
     const data = materialProperties();
     expect(data.length).toBe(ELEMENTS.length * 16);
     const wood = getElementByName('Wood');
     const o = wood.id * 16;
-    expect(data[o + 0]).toBe(wood.density);
+    expect(data[o + 0]).toBeCloseTo(simDensity(wood.form, wood.realDensity));
     expect(data[o + 1]).toBeCloseTo(wood.thermalConductivity);
-    expect(data[o + 2]).toBeCloseTo(wood.heatCapacity);
+    expect(data[o + 2]).toBeCloseTo(wood.specificHeat);
     expect(data[o + 3]).toBe(300);
     expect(data[o + 4]).toBe(getElementByName('Fire').id);
     expect(data[o + 5]).toBe(1);
@@ -378,12 +386,12 @@ describe('corrosion demo materials', () => {
 });
 
 describe('materials serializer with corrosion params', () => {
-  it('is 12 floats/element with corrosion params in the documented slots', () => {
+  it('is 16 floats/element with corrosion params in the documented slots', () => {
     const data = materialProperties();
     expect(data.length).toBe(ELEMENTS.length * 16);
     const conc = getElementByName('Sulfuric Acid (Concentrated)');
     const o = conc.id * 16;
-    expect(data[o + 0]).toBe(conc.density);
+    expect(data[o + 0]).toBeCloseTo(simDensity(conc.form, conc.realDensity));
     expect(data[o + 6]).toBe(3);            // corrosiveStrength
     expect(data[o + 9]).toBe(getElementByName('Sulfuric Acid (Dilute)').id); // weakensTo
     const lime = getElementByName('Limestone');

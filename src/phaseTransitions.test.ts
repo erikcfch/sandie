@@ -58,7 +58,7 @@ describe('getChain', () => {
   it('includes each segment heat capacity matching the element table', () => {
     const chain = getChain(WATER)!;
     const waterSegment = chain.segments.find((s) => s.elementId === WATER)!;
-    expect(waterSegment.heatCapacity).toBe(getElementByName('Water').heatCapacity);
+    expect(waterSegment.heatCapacity).toBe(getElementByName('Water').specificHeat);
   });
 
   it('returns undefined for elements with no phase transitions', () => {
