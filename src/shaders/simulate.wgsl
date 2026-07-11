@@ -103,6 +103,11 @@ const SATURATED_SAND: u32 = 21u;
 // Per-tick chance a gas cell spreads sideways. < 1 so gas rises as a plume
 // instead of fanning flat every tick. Tune visually.
 const GAS_DISPERSE_CHANCE: f32 = 0.25;
+// Pressure delta (across a block-adjacent pair) above which `movement` flings
+// a loose cell toward the lower-pressure side, on top of gravity. When no
+// blast is active pressureField is ~0 everywhere, so |pΔ| never exceeds this
+// and the fling never fires - see Phase 3b.
+const FLING_PRESSURE: f32 = 3.0;
 const NO_NEIGHBOR: u32 = 0xffffffffu;
 // Sentinel for "no minimum temperature gate" written by reactions.ts's
 // reactionData() - must stay in sync with its NO_MIN_TEMPERATURE export.
@@ -260,40 +265,89 @@ fn movement(@builtin(global_invocation_id) gid: vec3<u32>) {
   var c = readBuf[idxC];
   var d = readBuf[idxD];
 
-  // 1. Straight down/up, one check per column.
-  let movedLeft = shouldSwapVertical(a.elementId, c.elementId);
+  // 0. Pressure-directed fling (Phase 3b): a blast's pressure field pushes
+  // loose material away from high pressure toward low pressure, resolved
+  // BEFORE gravity/diagonal/horizontal below. When no blast is active
+  // pressureField is ~0 everywhere, so every |pΔ| stays under
+  // FLING_PRESSURE and none of these four fire - the pass then falls
+  // through to the unchanged rules below exactly as before. Each `flung*`
+  // flag mirrors movedLeft/movedRight: it marks that pair as already
+  // resolved this tick so the normal swap for the same pair is skipped
+  // below (a cell moves at most once per tick).
+  let pA = pressureField[idxA];
+  let pB = pressureField[idxB];
+  let pC = pressureField[idxC];
+  let pD = pressureField[idxD];
+
+  var flungAC = false;
+  if (abs(pA - pC) > FLING_PRESSURE) {
+    if (pA > pC && isPowderOrLiquid(a.elementId) && (c.elementId == EMPTY || isGas(c.elementId))) {
+      let t = a; a = c; c = t; flungAC = true;
+    } else if (pC > pA && isPowderOrLiquid(c.elementId) && (a.elementId == EMPTY || isGas(a.elementId))) {
+      let t = c; c = a; a = t; flungAC = true;
+    }
+  }
+  var flungBD = false;
+  if (abs(pB - pD) > FLING_PRESSURE) {
+    if (pB > pD && isPowderOrLiquid(b.elementId) && (d.elementId == EMPTY || isGas(d.elementId))) {
+      let t = b; b = d; d = t; flungBD = true;
+    } else if (pD > pB && isPowderOrLiquid(d.elementId) && (b.elementId == EMPTY || isGas(b.elementId))) {
+      let t = d; d = b; b = t; flungBD = true;
+    }
+  }
+  var flungAB = false;
+  if (abs(pA - pB) > FLING_PRESSURE) {
+    if (pA > pB && isPowderOrLiquid(a.elementId) && (b.elementId == EMPTY || isGas(b.elementId))) {
+      let t = a; a = b; b = t; flungAB = true;
+    } else if (pB > pA && isPowderOrLiquid(b.elementId) && (a.elementId == EMPTY || isGas(a.elementId))) {
+      let t = b; b = a; a = t; flungAB = true;
+    }
+  }
+  var flungCD = false;
+  if (abs(pC - pD) > FLING_PRESSURE) {
+    if (pC > pD && isPowderOrLiquid(c.elementId) && (d.elementId == EMPTY || isGas(d.elementId))) {
+      let t = c; c = d; d = t; flungCD = true;
+    } else if (pD > pC && isPowderOrLiquid(d.elementId) && (c.elementId == EMPTY || isGas(c.elementId))) {
+      let t = d; d = c; c = t; flungCD = true;
+    }
+  }
+
+  // 1. Straight down/up, one check per column. Skipped for a column whose
+  // pair was already resolved by the fling above.
+  let movedLeft = !flungAC && shouldSwapVertical(a.elementId, c.elementId);
   if (movedLeft) {
     let tmp = a; a = c; c = tmp;
   }
-  let movedRight = shouldSwapVertical(b.elementId, d.elementId);
+  let movedRight = !flungBD && shouldSwapVertical(b.elementId, d.elementId);
   if (movedRight) {
     let tmp = b; b = d; d = tmp;
   }
 
   // 2. Diagonal, only for a column that didn't just resolve straight down
-  // (so a cell moves at most once per tick), gated by cohesion so wet sand
-  // clumps instead of sliding.
+  // or get flung (so a cell moves at most once per tick), gated by
+  // cohesion so wet sand clumps instead of sliding.
   let rollAD = f32(hash(u32(blockX), u32(blockY), params.frame) & 0xffffu) / 65536.0;
   let gateAD = select(diagonalSlideChance(a.elementId), 0.5, isGas(d.elementId) && a.elementId == EMPTY);
-  if (!movedLeft && shouldSwapVertical(a.elementId, d.elementId) && rollAD < gateAD) {
+  if (!movedLeft && !flungAC && shouldSwapVertical(a.elementId, d.elementId) && rollAD < gateAD) {
     let tmp = a; a = d; d = tmp;
   }
   let rollBC = f32(hash(u32(blockX + 1), u32(blockY), params.frame) & 0xffffu) / 65536.0;
   let gateBC = select(diagonalSlideChance(b.elementId), 0.5, isGas(c.elementId) && b.elementId == EMPTY);
-  if (!movedRight && shouldSwapVertical(b.elementId, c.elementId) && rollBC < gateBC) {
+  if (!movedRight && !flungBD && shouldSwapVertical(b.elementId, c.elementId) && rollBC < gateBC) {
     let tmp = b; b = c; c = tmp;
   }
 
   // 3. Horizontal spread. Gas disperses sideways only occasionally so it rises
-  // as a plume; liquids and other spreads are unchanged.
+  // as a plume; liquids and other spreads are unchanged. Skipped for a row
+  // whose pair was already resolved by the fling above.
   let hRollAB = f32(hash(u32(blockX) + 31u, u32(blockY) + 17u, params.frame) & 0xffffu) / 65536.0;
   let gasAB = isGas(a.elementId) || isGas(b.elementId);
-  if ((!gasAB || hRollAB < GAS_DISPERSE_CHANCE) && shouldSwapHorizontal(a.elementId, b.elementId)) {
+  if (!flungAB && (!gasAB || hRollAB < GAS_DISPERSE_CHANCE) && shouldSwapHorizontal(a.elementId, b.elementId)) {
     let tmp = a; a = b; b = tmp;
   }
   let hRollCD = f32(hash(u32(blockX) + 53u, u32(blockY) + 71u, params.frame) & 0xffffu) / 65536.0;
   let gasCD = isGas(c.elementId) || isGas(d.elementId);
-  if ((!gasCD || hRollCD < GAS_DISPERSE_CHANCE) && shouldSwapHorizontal(c.elementId, d.elementId)) {
+  if (!flungCD && (!gasCD || hRollCD < GAS_DISPERSE_CHANCE) && shouldSwapHorizontal(c.elementId, d.elementId)) {
     let tmp = c; c = d; d = tmp;
   }
 
