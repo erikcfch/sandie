@@ -74,6 +74,9 @@ struct SimParams {
 @group(0) @binding(5) var<storage, read> thresholdReactions: array<vec4<f32>>;
 @group(0) @binding(6) var<storage, read> materialFlags: array<u32>;
 @group(0) @binding(7) var<storage, read> chains: array<vec4<f32>>;
+// Blast pressure field (location-indexed), evolved only by the `blast` pass;
+// `movement` reads it to fling loose cells down-gradient. See Phase 3b.
+@group(0) @binding(8) var<storage, read> pressureField: array<f32>;
 
 const EMPTY: u32 = 0u;
 const STONE: u32 = 1u;
@@ -802,4 +805,24 @@ fn heat(@builtin(global_invocation_id) gid: vec3<u32>) {
   }
 
   writeBuf[idx] = Cell(result.elementId, newEnthalpy);
+}
+
+// ---- Blast pass (Phase 3b) — its own bind group layout ----
+@group(0) @binding(0) var<uniform> blastParams: SimParams;
+@group(0) @binding(1) var<storage, read_write> blastGrid: array<Cell>;
+@group(0) @binding(2) var<storage, read> blastPressureIn: array<f32>;
+@group(0) @binding(3) var<storage, read_write> blastPressureOut: array<f32>;
+@group(0) @binding(4) var<storage, read> blastMaterials: array<vec4<f32>>;
+@group(0) @binding(5) var<storage, read> blastFlags: array<u32>;
+
+@compute @workgroup_size(8, 8)
+fn blast(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let width = i32(blastParams.width);
+  let height = i32(blastParams.height);
+  let x = i32(gid.x);
+  let y = i32(gid.y);
+  if (x >= width || y >= height) { return; }
+  let idx = cellIndex(x, y, width);
+  // Task 2: inert — carry pressure through, leave the grid untouched.
+  blastPressureOut[idx] = blastPressureIn[idx];
 }
