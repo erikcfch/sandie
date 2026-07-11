@@ -1,9 +1,46 @@
 # Explosions — Phase 3b Design Spec
 
 **Date:** 2026-07-10
-**Status:** Approved shape; ready for implementation plan
+**Status:** ✅ DONE — implemented + GPU-verified on branch `material-explosions`
 **Branch:** `material-explosions` (off `master`)
 **Parent:** Phase 3 program — `docs/superpowers/specs/2026-07-10-material-library-phase3-design.md` (3b)
+
+## As built (2026-07-10)
+
+Implemented subagent-driven (7 tasks, each spec/quality-reviewed + in-browser
+verified; opus whole-branch review). The pressure field is a canonical
+`pressureField` buffer + `pressureNext` scratch with a per-frame copy-back; the
+`blast` pass is a separate **in-place** pass (own bind-group layout, single
+read-write grid) so it does NOT disturb the existing ping-pong parity; only
+`movement` gained a read-only pressure binding. Detonation uses the **proxy
+temperature** and a chainless `blastProductEnthalpy` (never the chain walk) — no
+grid wipe. Verified in headed Chrome: TNT detonates + chain-consumes a block;
+destroy converts inert→Smoke (the surrounding lava→Smoke plume — an unambiguous
+inert-destroy signal, since lava has no other path to smoke); ignite→Fire; the
+`movement` fling launches loose material outward/up; idle movement is byte-
+identical (no fling when pressure≈0). 167 unit tests, typecheck, build green;
+6/7 e2e behavior tests pass (the 1 failure — profiler backtick toggle — is
+pre-existing/unrelated, identical to master).
+
+**Tuned constants (game-balance, tuned in-browser):** `BLAST_DECAY=0.72`,
+`BLAST_DIFFUSE=0.5`, `DESTROY_PRESSURE=12`, `CHAIN_PRESSURE=8`, `IGNITE_PRESSURE=4`,
+`FLING_PRESSURE=3`. **TNT:** `detonationTemp=190` (safely above the 150 ambient-max
+so no spontaneous detonation; detonates when engulfed in sustained fire/lava —
+a thin/brief heat source will NOT set it off, which is acceptable), `ignitionTemp=280`
+(> detonationTemp so detonation wins over burning), `blastStrength=200`,
+`thermalConductivity=0.6`, `burnProduct=Fire`.
+
+**Controller adjudications of the final movement-pass review (both plan-mandate-
+conflicting QUALITY findings, not correctness — race-freedom + idle-identical both
+hold):** (1) *2-cell fling near a blast core* — ACCEPTED: the Margolus block is
+conservative (no duplication/race), the primary fling isn't undone, and fast fling
+near a core suits a blast; restructuring the critical movement pass risked a
+base-movement regression. (2) *no hash-roll scatter on the fling* — DECLINED as
+optional polish: the strong uniform fling reads as forceful displacement and the
+brief's own concrete code omitted the roll. Both are noted for future feel-tuning.
+
+**Kept:** the faint pressure tint in `render.wgsl` as a subtle shockwave glow
+(invisible when pressure≈0, i.e. outside blasts).
 
 ## Motivation
 

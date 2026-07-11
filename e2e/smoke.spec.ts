@@ -198,3 +198,36 @@ test('viscosity: liquids of different thickness flow without errors', async ({ p
   expect(pageErrors, `page errors: ${pageErrors.join('; ')}`).toEqual([]);
   expect(consoleErrors, `console errors: ${consoleErrors.join('; ')}`).toEqual([]);
 });
+
+test('explosions: TNT detonates in lava without errors or grid wipe', async ({ page }) => {
+  const consoleErrors: string[] = [];
+  page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
+  const pageErrors: string[] = [];
+  page.on('pageerror', (e) => pageErrors.push(e.message));
+
+  await page.goto('/');
+  const canvas = page.locator('canvas#grid');
+  const unsupported = page.locator('.unsupported');
+  await expect(canvas.or(unsupported)).toBeVisible();
+  if (!(await canvas.isVisible())) test.skip();
+
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('no canvas box');
+  const at = (fx: number, fy: number) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy });
+  const stroke = async (name: string, fx0: number, fx1: number, fy: number) => {
+    await page.getByRole('button', { name, exact: true }).click();
+    const a = at(fx0, fy); await page.mouse.move(a.x, a.y); await page.mouse.down();
+    const b = at(fx1, fy); await page.mouse.move(b.x, b.y); await page.mouse.up();
+  };
+
+  // TNT embedded in a lava pool: the sustained heat detonates it, driving the
+  // whole blast path (pressure inject/diffuse/decay, destroy/ignite/chain, fling).
+  await stroke('Stone', 0.3, 0.7, 0.8);
+  await stroke('Lava', 0.4, 0.6, 0.68);
+  await stroke('TNT', 0.44, 0.56, 0.7);
+  await stroke('Lava', 0.4, 0.6, 0.64);
+  await page.waitForTimeout(3000);
+
+  expect(pageErrors, `page errors: ${pageErrors.join('; ')}`).toEqual([]);
+  expect(consoleErrors, `console errors: ${consoleErrors.join('; ')}`).toEqual([]);
+});
