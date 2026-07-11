@@ -94,7 +94,7 @@ export const ELEMENTS: readonly ElementDef[] = [
   { id: 25, name: 'CO₂', category: 'gas', color: [200, 215, 205], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.05, family: 'chem', formula: 'CO₂', form: 'gas', phase: 'gas', origin: 'inorganic', metallic: 'nonmetal', realDensity: 0.00198, specificHeat: 0.85 },
   { id: 26, name: 'Wax', category: 'static', color: [240, 235, 215], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.2, family: 'physical', form: 'static', phase: 'solid', origin: 'organic', metallic: 'nonmetal', realDensity: 0.9, specificHeat: 2.1, meltingPoint: 60 },
   { id: 27, name: 'Molten Wax', category: 'liquid', color: [235, 210, 150], defaultTemp: 70, thermalConductivity: 0.2, family: 'physical', form: 'liquid', phase: 'liquid', origin: 'organic', metallic: 'nonmetal', realDensity: 0.8, specificHeat: 2.2, meltingPoint: 60, viscosityRefLog10: 2.68, viscosityTempCoeff: -0.022 },
-  { id: 28, name: 'TNT', category: 'static', color: [180, 60, 50], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.4, family: 'physical', form: 'static', phase: 'solid', origin: 'organic', metallic: 'nonmetal', flammable: true, explosive: true, ignitionTemp: 280, burnProduct: 9, burnRate: 0.4, detonationTemp: 200, blastStrength: 90, realDensity: 1.6, specificHeat: 1.2 },
+  { id: 28, name: 'TNT', category: 'static', color: [180, 60, 50], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.6, family: 'physical', form: 'static', phase: 'solid', origin: 'organic', metallic: 'nonmetal', flammable: true, explosive: true, ignitionTemp: 280, burnProduct: 9, burnRate: 0.4, detonationTemp: 190, blastStrength: 200, realDensity: 1.6, specificHeat: 1.2 },
 ];
 
 const BY_NAME = new Map(ELEMENTS.map((e) => [e.name, e]));
