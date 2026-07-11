@@ -307,13 +307,13 @@ describe('material taxonomy', () => {
 });
 
 describe('capabilities and reference values', () => {
-  it('only Wood is flammable in Phase 1, igniting to Fire', () => {
+  it('Wood and TNT are flammable, igniting to Fire', () => {
     const wood = getElementByName('Wood');
     expect(wood.flammable).toBe(true);
     expect(wood.ignitionTemp).toBe(300);
     expect(wood.burnProduct).toBe(getElementByName('Fire').id);
     expect(wood.burnRate).toBe(1);
-    expect(ELEMENTS.filter((e) => e.flammable).map((e) => e.name)).toEqual(['Wood']);
+    expect(ELEMENTS.filter((e) => e.flammable).map((e) => e.name)).toEqual(['Wood', 'TNT']);
   });
   it('acids are corrosive and copper is a conductive metal', () => {
     for (const n of ['Sulfuric Acid (Dilute)', 'Sulfuric Acid (Very Dilute)', 'Sulfuric Acid (Concentrated)', 'Sulfuric Acid (Fuming)'])
@@ -431,5 +431,28 @@ describe('viscosity data', () => {
   it('leaves non-liquids without a viscosity curve', () => {
     expect(getElementByName('Sand').viscosityRefLog10).toBeUndefined();
     expect(getElementByName('Stone').viscosityRefLog10).toBeUndefined();
+  });
+});
+
+describe('explosives', () => {
+  it('adds TNT as a static, explosive, flammable material with blast params', () => {
+    const tnt = getElementByName('TNT');
+    expect(tnt.form).toBe('static');
+    expect(tnt.explosive).toBe(true);
+    expect(tnt.flammable).toBe(true);
+    expect(tnt.detonationTemp).toBeGreaterThan(0);
+    expect(tnt.blastStrength).toBeGreaterThan(0);
+    expect(tnt.burnProduct).toBe(getElementByName('Fire').id);
+  });
+
+  it('packs the explosive flag at bit 8 and blast params at slots 14/15', () => {
+    const flags = materialFlags();
+    const tnt = getElementByName('TNT');
+    expect((flags[tnt.id] >> 8) & 1).toBe(1);
+    expect((flags[getElementByName('Sand').id] >> 8) & 1).toBe(0);
+    const data = materialProperties();
+    const o = tnt.id * 16;
+    expect(data[o + 14]).toBe(tnt.detonationTemp);
+    expect(data[o + 15]).toBe(tnt.blastStrength);
   });
 });
