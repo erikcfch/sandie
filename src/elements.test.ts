@@ -92,14 +92,14 @@ describe('ELEMENTS table', () => {
     }
   });
 
-  it('gives every element a positive thermalConductivity and heatCapacity', () => {
+  it('gives every element a positive thermalConductivity and specificHeat', () => {
     for (const element of ELEMENTS) {
       expect(element.thermalConductivity).toBeGreaterThan(0);
       expect(element.specificHeat).toBeGreaterThan(0);
     }
   });
 
-  it('gives Water a much higher heatCapacity than Stone, so it acts as a thermal buffer/coolant', () => {
+  it('gives Water a much higher specificHeat than Stone, so it acts as a thermal buffer/coolant', () => {
     expect(getElementByName('Water').specificHeat).toBeGreaterThan(getElementByName('Stone').specificHeat * 2);
   });
 
@@ -177,7 +177,7 @@ describe('materialProperties', () => {
     expect(props.length).toBe(ELEMENTS.length * 16);
   });
 
-  it('places each element density, thermalConductivity, and heatCapacity at its id offset', () => {
+  it('places each element density, thermalConductivity, and specificHeat at its id offset', () => {
     const water = getElementByName('Water');
     const props = materialProperties();
     const offset = water.id * 16;
@@ -244,7 +244,7 @@ describe('Chem elements', () => {
     expect(concentrated).toBeLessThan(fuming);
   });
 
-  it('decreases acid heatCapacity with concentration (less water = less thermal buffering)', () => {
+  it('decreases acid specificHeat with concentration (less water = less thermal buffering)', () => {
     const veryDilute = getElementByName('Sulfuric Acid (Very Dilute)').specificHeat;
     const dilute = getElementByName('Sulfuric Acid (Dilute)').specificHeat;
     const concentrated = getElementByName('Sulfuric Acid (Concentrated)').specificHeat;
@@ -321,14 +321,14 @@ describe('capabilities and reference values', () => {
     expect(getElementByName('Copper').conductive).toBe(true);
   });
   it('records real reference densities (ice less dense than water; copper dense)', () => {
-    expect(getElementByName('Ice').realDensity!).toBeLessThan(getElementByName('Water').realDensity!);
-    expect(getElementByName('Copper').realDensity!).toBeGreaterThan(5);
+    expect(getElementByName('Ice').realDensity).toBeLessThan(getElementByName('Water').realDensity);
+    expect(getElementByName('Copper').realDensity).toBeGreaterThan(5);
     expect(getElementByName('Water').realDensity).toBeCloseTo(1.0, 1);
   });
 });
 
 describe('GPU material serializers', () => {
-  it('materials buffer is 12 floats/element with unchanged sim values + flammability params', () => {
+  it('materials buffer is 16 floats/element with unchanged sim values + flammability params', () => {
     const data = materialProperties();
     expect(data.length).toBe(ELEMENTS.length * 16);
     const wood = getElementByName('Wood');
@@ -386,7 +386,7 @@ describe('corrosion demo materials', () => {
 });
 
 describe('materials serializer with corrosion params', () => {
-  it('is 12 floats/element with corrosion params in the documented slots', () => {
+  it('is 16 floats/element with corrosion params in the documented slots', () => {
     const data = materialProperties();
     expect(data.length).toBe(ELEMENTS.length * 16);
     const conc = getElementByName('Sulfuric Acid (Concentrated)');

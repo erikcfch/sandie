@@ -22,7 +22,7 @@ describe('normalizedDensity', () => {
   });
 
   it('clamps into [LO, HI]', () => {
-    expect(normalizedDensity(1e-9)).toBeGreaterThanOrEqual(SIM_DENSITY_LO);
+    expect(normalizedDensity(1e-9)).toBe(SIM_DENSITY_LO);
     expect(normalizedDensity(10 ** (DENSITY_LOG_MAX + 5))).toBe(SIM_DENSITY_HI);
   });
 
@@ -32,6 +32,7 @@ describe('normalizedDensity', () => {
     expect(normalizedDensity(2.9)).toBeCloseTo(80.4195, 3); // Lava
     expect(normalizedDensity(5.24)).toBeCloseTo(84.8921, 3); // Rust
     expect(normalizedDensity(0.0003)).toBeCloseTo(11.0462, 3); // Fire
+    expect(normalizedDensity(0.0012)).toBeCloseTo(21.5265, 3); // Smoke
   });
 });
 
