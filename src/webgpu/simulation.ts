@@ -27,8 +27,8 @@ const SIM_PARAMS_BYTES = 24; // SimParams{width, height, frame, ambientTemp, rea
 // One SimParams slot per block-CA dispatch that needs its own frame value:
 // TICKS_PER_FRAME movement/heat ticks (movement+heat within a tick share a
 // slot) + 1 soak pass + 1 corrode pass (its own slot for a distinct Margolus
-// alignment) + LIQUID_SUBSTEPS liquid-leveling passes.
-const SIM_SLOTS = TICKS_PER_FRAME + 2 + LIQUID_SUBSTEPS;
+// alignment) + 1 blast pass + LIQUID_SUBSTEPS liquid-leveling passes.
+const SIM_SLOTS = TICKS_PER_FRAME + 3 + LIQUID_SUBSTEPS;
 
 export interface PaintInput {
   active: boolean;
@@ -61,6 +61,8 @@ export class Simulation {
   // (A -> movement -> B -> heat -> A), so no ping-pong flag is needed.
   private readonly gridBufferA: GPUBuffer;
   private readonly gridBufferB: GPUBuffer;
+  private readonly pressureFieldBuffer: GPUBuffer;
+  private readonly pressureNextBuffer: GPUBuffer;
   private readonly paletteBuffer: GPUBuffer;
   private readonly materialsBuffer: GPUBuffer;
   private readonly chainsBuffer: GPUBuffer;
@@ -75,6 +77,7 @@ export class Simulation {
   private readonly heatBindGroup: GPUBindGroup;
   private readonly paintBindGroup: GPUBindGroup;
   private readonly renderBindGroup: GPUBindGroup;
+  private readonly blastBindGroup: GPUBindGroup;
 
   private readonly movementPipeline: GPUComputePipeline;
   private readonly heatPipeline: GPUComputePipeline;
@@ -83,6 +86,7 @@ export class Simulation {
   private readonly corrodePipeline: GPUComputePipeline;
   private readonly paintPipeline: GPUComputePipeline;
   private readonly renderPipeline: GPURenderPipeline;
+  private readonly blastPipeline: GPUComputePipeline;
 
   private frame = 0;
 
@@ -112,6 +116,14 @@ export class Simulation {
       label: 'grid-b',
       size: GRID_BYTES,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    this.pressureFieldBuffer = device.createBuffer({
+      label: 'pressure-field', size: CELL_COUNT * 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, // copy DESTINATION only (pressureNext -> here)
+    });
+    this.pressureNextBuffer = device.createBuffer({
+      label: 'pressure-next', size: CELL_COUNT * 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
 
     this.paletteBuffer = this.createStorageBuffer('palette', colorPalette());
@@ -163,6 +175,7 @@ export class Simulation {
         { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
         { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
         { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+        { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
       ],
     });
     const paintBindGroupLayout = device.createBindGroupLayout({
@@ -180,6 +193,7 @@ export class Simulation {
         { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
         { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
         { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
+        { binding: 5, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
       ],
     });
 
@@ -218,6 +232,33 @@ export class Simulation {
       primitive: { topology: 'triangle-list' },
     });
 
+    const blastBindGroupLayout = device.createBindGroupLayout({
+      label: 'blast-bgl',
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform', hasDynamicOffset: true } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+        { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+      ],
+    });
+    const blastPipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [blastBindGroupLayout] });
+    this.blastPipeline = device.createComputePipeline({
+      layout: blastPipelineLayout, compute: { module: simModule, entryPoint: 'blast' },
+    });
+    this.blastBindGroup = device.createBindGroup({
+      layout: blastBindGroupLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.simParamsBuffer, offset: 0, size: SIM_PARAMS_BYTES } },
+        { binding: 1, resource: { buffer: this.gridBufferA } },
+        { binding: 2, resource: { buffer: this.pressureFieldBuffer } },
+        { binding: 3, resource: { buffer: this.pressureNextBuffer } },
+        { binding: 4, resource: { buffer: this.materialsBuffer } },
+        { binding: 5, resource: { buffer: this.materialFlagsBuffer } },
+      ],
+    });
+
     this.movementBindGroup = device.createBindGroup({
       layout: simBindGroupLayout,
       entries: [
@@ -229,6 +270,7 @@ export class Simulation {
         { binding: 5, resource: { buffer: this.thresholdReactionsBuffer } },
         { binding: 6, resource: { buffer: this.materialFlagsBuffer } },
         { binding: 7, resource: { buffer: this.chainsBuffer } },
+        { binding: 8, resource: { buffer: this.pressureFieldBuffer } },
       ],
     });
     this.heatBindGroup = device.createBindGroup({
@@ -242,6 +284,7 @@ export class Simulation {
         { binding: 5, resource: { buffer: this.thresholdReactionsBuffer } },
         { binding: 6, resource: { buffer: this.materialFlagsBuffer } },
         { binding: 7, resource: { buffer: this.chainsBuffer } },
+        { binding: 8, resource: { buffer: this.pressureFieldBuffer } },
       ],
     });
     this.paintBindGroup = device.createBindGroup({
@@ -259,6 +302,7 @@ export class Simulation {
         { binding: 2, resource: { buffer: this.paletteBuffer } },
         { binding: 3, resource: { buffer: this.materialsBuffer } },
         { binding: 4, resource: { buffer: this.chainsBuffer } },
+        { binding: 5, resource: { buffer: this.pressureFieldBuffer } },
       ],
     });
 
@@ -386,13 +430,23 @@ export class Simulation {
         dispatchSim(this.soakPipeline, TICKS_PER_FRAME);
         dispatchSim(this.corrodePipeline, TICKS_PER_FRAME + 1);
         for (let s = 0; s < LIQUID_SUBSTEPS; s++) {
-          dispatchSim(this.liquidMovementPipeline, TICKS_PER_FRAME + 2 + s);
+          dispatchSim(this.liquidMovementPipeline, TICKS_PER_FRAME + 3 + s);
         }
+
+        // Grid canonical in A here. blast runs in place on A (not part of the
+        // ping-pong), reading/writing pressure through its own bind group.
+        pass.setPipeline(this.blastPipeline);
+        pass.setBindGroup(0, this.blastBindGroup, [(TICKS_PER_FRAME + 2) * this.paramsStride]);
+        pass.dispatchWorkgroups(WORKGROUPS_X, WORKGROUPS_Y);
 
         this.frame += SIM_SLOTS;
       }
 
       pass.end();
+
+      if (simulate) {
+        encoder.copyBufferToBuffer(this.pressureNextBuffer, 0, this.pressureFieldBuffer, 0, CELL_COUNT * 4);
+      }
     }
 
     const renderPassDescriptor: GPURenderPassDescriptor = {
@@ -433,6 +487,9 @@ export class Simulation {
     }
     this.device.queue.writeBuffer(this.gridBufferA, 0, cells);
     this.device.queue.writeBuffer(this.gridBufferB, 0, cells);
+    const zeros = new Float32Array(CELL_COUNT);
+    this.device.queue.writeBuffer(this.pressureFieldBuffer, 0, zeros);
+    this.device.queue.writeBuffer(this.pressureNextBuffer, 0, zeros);
     this.frame = 0;
   }
 }

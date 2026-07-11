@@ -74,6 +74,9 @@ struct SimParams {
 @group(0) @binding(5) var<storage, read> thresholdReactions: array<vec4<f32>>;
 @group(0) @binding(6) var<storage, read> materialFlags: array<u32>;
 @group(0) @binding(7) var<storage, read> chains: array<vec4<f32>>;
+// Blast pressure field (location-indexed), evolved only by the `blast` pass;
+// `movement` reads it to fling loose cells down-gradient. See Phase 3b.
+@group(0) @binding(8) var<storage, read> pressureField: array<f32>;
 
 const EMPTY: u32 = 0u;
 const STONE: u32 = 1u;
@@ -100,6 +103,11 @@ const SATURATED_SAND: u32 = 21u;
 // Per-tick chance a gas cell spreads sideways. < 1 so gas rises as a plume
 // instead of fanning flat every tick. Tune visually.
 const GAS_DISPERSE_CHANCE: f32 = 0.25;
+// Pressure delta (across a block-adjacent pair) above which `movement` flings
+// a loose cell toward the lower-pressure side, on top of gravity. When no
+// blast is active pressureField is ~0 everywhere, so |pΔ| never exceeds this
+// and the fling never fires - see Phase 3b.
+const FLING_PRESSURE: f32 = 3.0;
 const NO_NEIGHBOR: u32 = 0xffffffffu;
 // Sentinel for "no minimum temperature gate" written by reactions.ts's
 // reactionData() - must stay in sync with its NO_MIN_TEMPERATURE export.
@@ -257,40 +265,89 @@ fn movement(@builtin(global_invocation_id) gid: vec3<u32>) {
   var c = readBuf[idxC];
   var d = readBuf[idxD];
 
-  // 1. Straight down/up, one check per column.
-  let movedLeft = shouldSwapVertical(a.elementId, c.elementId);
+  // 0. Pressure-directed fling (Phase 3b): a blast's pressure field pushes
+  // loose material away from high pressure toward low pressure, resolved
+  // BEFORE gravity/diagonal/horizontal below. When no blast is active
+  // pressureField is ~0 everywhere, so every |pΔ| stays under
+  // FLING_PRESSURE and none of these four fire - the pass then falls
+  // through to the unchanged rules below exactly as before. Each `flung*`
+  // flag mirrors movedLeft/movedRight: it marks that pair as already
+  // resolved this tick so the normal swap for the same pair is skipped
+  // below (a cell moves at most once per tick).
+  let pA = pressureField[idxA];
+  let pB = pressureField[idxB];
+  let pC = pressureField[idxC];
+  let pD = pressureField[idxD];
+
+  var flungAC = false;
+  if (abs(pA - pC) > FLING_PRESSURE) {
+    if (pA > pC && isPowderOrLiquid(a.elementId) && (c.elementId == EMPTY || isGas(c.elementId))) {
+      let t = a; a = c; c = t; flungAC = true;
+    } else if (pC > pA && isPowderOrLiquid(c.elementId) && (a.elementId == EMPTY || isGas(a.elementId))) {
+      let t = c; c = a; a = t; flungAC = true;
+    }
+  }
+  var flungBD = false;
+  if (abs(pB - pD) > FLING_PRESSURE) {
+    if (pB > pD && isPowderOrLiquid(b.elementId) && (d.elementId == EMPTY || isGas(d.elementId))) {
+      let t = b; b = d; d = t; flungBD = true;
+    } else if (pD > pB && isPowderOrLiquid(d.elementId) && (b.elementId == EMPTY || isGas(b.elementId))) {
+      let t = d; d = b; b = t; flungBD = true;
+    }
+  }
+  var flungAB = false;
+  if (abs(pA - pB) > FLING_PRESSURE) {
+    if (pA > pB && isPowderOrLiquid(a.elementId) && (b.elementId == EMPTY || isGas(b.elementId))) {
+      let t = a; a = b; b = t; flungAB = true;
+    } else if (pB > pA && isPowderOrLiquid(b.elementId) && (a.elementId == EMPTY || isGas(a.elementId))) {
+      let t = b; b = a; a = t; flungAB = true;
+    }
+  }
+  var flungCD = false;
+  if (abs(pC - pD) > FLING_PRESSURE) {
+    if (pC > pD && isPowderOrLiquid(c.elementId) && (d.elementId == EMPTY || isGas(d.elementId))) {
+      let t = c; c = d; d = t; flungCD = true;
+    } else if (pD > pC && isPowderOrLiquid(d.elementId) && (c.elementId == EMPTY || isGas(c.elementId))) {
+      let t = d; d = c; c = t; flungCD = true;
+    }
+  }
+
+  // 1. Straight down/up, one check per column. Skipped for a column whose
+  // pair was already resolved by the fling above.
+  let movedLeft = !flungAC && shouldSwapVertical(a.elementId, c.elementId);
   if (movedLeft) {
     let tmp = a; a = c; c = tmp;
   }
-  let movedRight = shouldSwapVertical(b.elementId, d.elementId);
+  let movedRight = !flungBD && shouldSwapVertical(b.elementId, d.elementId);
   if (movedRight) {
     let tmp = b; b = d; d = tmp;
   }
 
   // 2. Diagonal, only for a column that didn't just resolve straight down
-  // (so a cell moves at most once per tick), gated by cohesion so wet sand
-  // clumps instead of sliding.
+  // or get flung (so a cell moves at most once per tick), gated by
+  // cohesion so wet sand clumps instead of sliding.
   let rollAD = f32(hash(u32(blockX), u32(blockY), params.frame) & 0xffffu) / 65536.0;
   let gateAD = select(diagonalSlideChance(a.elementId), 0.5, isGas(d.elementId) && a.elementId == EMPTY);
-  if (!movedLeft && shouldSwapVertical(a.elementId, d.elementId) && rollAD < gateAD) {
+  if (!movedLeft && !flungAC && shouldSwapVertical(a.elementId, d.elementId) && rollAD < gateAD) {
     let tmp = a; a = d; d = tmp;
   }
   let rollBC = f32(hash(u32(blockX + 1), u32(blockY), params.frame) & 0xffffu) / 65536.0;
   let gateBC = select(diagonalSlideChance(b.elementId), 0.5, isGas(c.elementId) && b.elementId == EMPTY);
-  if (!movedRight && shouldSwapVertical(b.elementId, c.elementId) && rollBC < gateBC) {
+  if (!movedRight && !flungBD && shouldSwapVertical(b.elementId, c.elementId) && rollBC < gateBC) {
     let tmp = b; b = c; c = tmp;
   }
 
   // 3. Horizontal spread. Gas disperses sideways only occasionally so it rises
-  // as a plume; liquids and other spreads are unchanged.
+  // as a plume; liquids and other spreads are unchanged. Skipped for a row
+  // whose pair was already resolved by the fling above.
   let hRollAB = f32(hash(u32(blockX) + 31u, u32(blockY) + 17u, params.frame) & 0xffffu) / 65536.0;
   let gasAB = isGas(a.elementId) || isGas(b.elementId);
-  if ((!gasAB || hRollAB < GAS_DISPERSE_CHANCE) && shouldSwapHorizontal(a.elementId, b.elementId)) {
+  if (!flungAB && (!gasAB || hRollAB < GAS_DISPERSE_CHANCE) && shouldSwapHorizontal(a.elementId, b.elementId)) {
     let tmp = a; a = b; b = tmp;
   }
   let hRollCD = f32(hash(u32(blockX) + 53u, u32(blockY) + 71u, params.frame) & 0xffffu) / 65536.0;
   let gasCD = isGas(c.elementId) || isGas(d.elementId);
-  if ((!gasCD || hRollCD < GAS_DISPERSE_CHANCE) && shouldSwapHorizontal(c.elementId, d.elementId)) {
+  if (!flungCD && (!gasCD || hRollCD < GAS_DISPERSE_CHANCE) && shouldSwapHorizontal(c.elementId, d.elementId)) {
     let tmp = c; c = d; d = tmp;
   }
 
@@ -802,4 +859,102 @@ fn heat(@builtin(global_invocation_id) gid: vec3<u32>) {
   }
 
   writeBuf[idx] = Cell(result.elementId, newEnthalpy);
+}
+
+// ---- Blast pass (Phase 3b) — its own bind group layout ----
+const FIRE_TEMP: f32 = 400.0;
+const SMOKE_TEMP: f32 = 80.0;
+// Mirrored verbatim from src/blast.ts's nextPressure — do not let these drift.
+const BLAST_DECAY: f32 = 0.72;
+const BLAST_DIFFUSE: f32 = 0.5;
+// Mirrored verbatim from src/blast.ts's blastEffect thresholds — do not let these drift.
+const DESTROY_PRESSURE: f32 = 12.0;
+const CHAIN_PRESSURE: f32 = 8.0;
+const IGNITE_PRESSURE: f32 = 4.0;
+
+@group(0) @binding(0) var<uniform> blastParams: SimParams;
+@group(0) @binding(1) var<storage, read_write> blastGrid: array<Cell>;
+@group(0) @binding(2) var<storage, read> blastPressureIn: array<f32>;
+@group(0) @binding(3) var<storage, read_write> blastPressureOut: array<f32>;
+@group(0) @binding(4) var<storage, read> blastMaterials: array<vec4<f32>>;
+@group(0) @binding(5) var<storage, read> blastFlags: array<u32>;
+
+// Enthalpy for a CHAINLESS product (Fire/Smoke/burnProduct) at a fixed temp.
+// Chainless => enthalpy = temp * heatCapacity (no chain walk => Dawn-safe).
+fn blastProductEnthalpy(product: u32, temp: f32) -> f32 {
+  return temp * blastMaterials[product * 4u].z; // heatCapacity at .z
+}
+
+@compute @workgroup_size(8, 8)
+fn blast(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let width = i32(blastParams.width);
+  let height = i32(blastParams.height);
+  let x = i32(gid.x);
+  let y = i32(gid.y);
+  if (x >= width || y >= height) { return; }
+  let idx = cellIndex(x, y, width);
+
+  var cell = blastGrid[idx];
+  let id = cell.elementId;
+  let here = blastPressureIn[idx];
+
+  // injected = blastStrength only when this cell detonates THIS tick, else 0.
+  var injected = 0.0;
+
+  // A cell transforms AT MOST ONCE per tick — heat-detonation (below) and the
+  // pressure effects (chain/destroy/ignite, further below) are mutually exclusive.
+  var detonated = false;
+
+  // Detonation: explosive hot enough (proxy temp — NOT the chain walk).
+  let isExp = (blastFlags[id] & 256u) != 0u; // EXPLOSIVE_BIT = 1u<<8u
+  if (isExp) {
+    let proxyTemp = cell.enthalpy / blastMaterials[id * 4u].z; // heatCapacity at .z
+    let detTemp = blastMaterials[id * 4u + 3u].z;              // detonationTemp at slot 14
+    if (proxyTemp >= detTemp) {
+      let product = u32(blastMaterials[id * 4u + 1u].x);       // burnProduct at slot 4
+      cell = Cell(product, blastProductEnthalpy(product, FIRE_TEMP));
+      injected = blastMaterials[id * 4u + 3u].w;                // blastStrength at slot 15
+      detonated = true;
+    }
+  }
+
+  // Pressure diffusion + decay — mirrored verbatim from src/blast.ts's
+  // nextPressure. Off-grid neighbours read as 0.0 (same edge guard the
+  // heat pass uses above).
+  var up = 0.0;
+  var down = 0.0;
+  var left = 0.0;
+  var right = 0.0;
+  if (y > 0) { up = blastPressureIn[cellIndex(x, y - 1, width)]; }
+  if (y < height - 1) { down = blastPressureIn[cellIndex(x, y + 1, width)]; }
+  if (x > 0) { left = blastPressureIn[cellIndex(x - 1, y, width)]; }
+  if (x < width - 1) { right = blastPressureIn[cellIndex(x + 1, y, width)]; }
+  let neighbourAvg = (up + down + left + right) / 4.0;
+  let mixed = here * (1.0 - BLAST_DIFFUSE) + neighbourAvg * BLAST_DIFFUSE;
+  var newPressure = mixed * BLAST_DECAY + injected;
+
+  // Pressure effects — chain-detonate / destroy / ignite. A cell that already
+  // heat-detonated this tick (above) must not also be affected here.
+  // use blast* bindings only; blastProductEnthalpy defined above (Task 3)
+  if (!detonated) {
+    let flammable = (blastFlags[id] & 4u) != 0u;   // FLAMMABLE_BIT
+    let explosive = (blastFlags[id] & 256u) != 0u; // EXPLOSIVE_BIT
+    let product = u32(blastMaterials[id * 4u + 1u].x); // burnProduct
+    let roll = f32(hash(u32(x), u32(y), blastParams.frame) & 0xffffu) / 65536.0;
+    if (explosive && newPressure >= CHAIN_PRESSURE) {
+      cell = Cell(product, blastProductEnthalpy(product, FIRE_TEMP));
+      newPressure = newPressure + blastMaterials[id * 4u + 3u].w; // chain injects its own strength
+    } else if (newPressure >= DESTROY_PRESSURE && roll < 0.6) {
+      if (flammable) {
+        cell = Cell(product, blastProductEnthalpy(product, FIRE_TEMP));
+      } else if (id != EMPTY) {
+        cell = Cell(SMOKE, blastProductEnthalpy(SMOKE, SMOKE_TEMP)); // inert → dust
+      }
+    } else if (flammable && newPressure >= IGNITE_PRESSURE && roll < 0.5) {
+      cell = Cell(product, blastProductEnthalpy(product, FIRE_TEMP));
+    }
+  }
+
+  blastGrid[idx] = cell;
+  blastPressureOut[idx] = newPressure;
 }

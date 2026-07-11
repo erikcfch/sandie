@@ -44,6 +44,7 @@ export interface ElementDef {
   corrosive?: boolean;
   soluble?: boolean;
   conductive?: boolean;
+  explosive?: boolean;
   // --- Behavior params ---
   ignitionTemp?: number;
   burnProduct?: number;
@@ -56,6 +57,10 @@ export interface ElementDef {
   dissolvedProduct?: number;
   /** What a corrosive becomes when it reacts (element id); absent = does not deplete. */
   weakensTo?: number;
+  /** Temperature (°C, proxy scale) at/above which an explosive detonates. */
+  detonationTemp?: number;
+  /** Peak pressure injected into the pressure field on detonation (higher = bigger blast). */
+  blastStrength?: number;
 }
 
 export const AMBIENT_TEMP = 20;
@@ -89,6 +94,7 @@ export const ELEMENTS: readonly ElementDef[] = [
   { id: 25, name: 'CO₂', category: 'gas', color: [200, 215, 205], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.05, family: 'chem', formula: 'CO₂', form: 'gas', phase: 'gas', origin: 'inorganic', metallic: 'nonmetal', realDensity: 0.00198, specificHeat: 0.85 },
   { id: 26, name: 'Wax', category: 'static', color: [240, 235, 215], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.2, family: 'physical', form: 'static', phase: 'solid', origin: 'organic', metallic: 'nonmetal', realDensity: 0.9, specificHeat: 2.1, meltingPoint: 60 },
   { id: 27, name: 'Molten Wax', category: 'liquid', color: [235, 210, 150], defaultTemp: 70, thermalConductivity: 0.2, family: 'physical', form: 'liquid', phase: 'liquid', origin: 'organic', metallic: 'nonmetal', realDensity: 0.8, specificHeat: 2.2, meltingPoint: 60, viscosityRefLog10: 2.68, viscosityTempCoeff: -0.022 },
+  { id: 28, name: 'TNT', category: 'static', color: [180, 60, 50], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.6, family: 'physical', form: 'static', phase: 'solid', origin: 'organic', metallic: 'nonmetal', flammable: true, explosive: true, ignitionTemp: 280, burnProduct: 9, burnRate: 0.4, detonationTemp: 190, blastStrength: 200, realDensity: 1.6, specificHeat: 1.2 },
 ];
 
 const BY_NAME = new Map(ELEMENTS.map((e) => [e.name, e]));
@@ -127,8 +133,8 @@ export function materialProperties(): Float32Array {
     data[offset + 11] = 0;
     data[offset + 12] = element.viscosityRefLog10 ?? 0;
     data[offset + 13] = element.viscosityTempCoeff ?? 0;
-    data[offset + 14] = 0;
-    data[offset + 15] = 0;
+    data[offset + 14] = element.detonationTemp ?? 0;
+    data[offset + 15] = element.blastStrength ?? 0;
   }
   return data;
 }
@@ -147,6 +153,7 @@ export function materialFlags(): Uint32Array {
     if (element.conductive) f |= 1 << 5;
     if (element.origin === 'organic') f |= 1 << 6;
     if (element.metallic === 'metal') f |= 1 << 7;
+    if (element.explosive) f |= 1 << 8;
     data[element.id] = f >>> 0;
   }
   return data;
