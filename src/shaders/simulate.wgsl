@@ -810,6 +810,9 @@ fn heat(@builtin(global_invocation_id) gid: vec3<u32>) {
 // ---- Blast pass (Phase 3b) — its own bind group layout ----
 const FIRE_TEMP: f32 = 400.0;
 const SMOKE_TEMP: f32 = 80.0;
+// Mirrored verbatim from src/blast.ts's nextPressure — do not let these drift.
+const BLAST_DECAY: f32 = 0.72;
+const BLAST_DIFFUSE: f32 = 0.5;
 
 @group(0) @binding(0) var<uniform> blastParams: SimParams;
 @group(0) @binding(1) var<storage, read_write> blastGrid: array<Cell>;
@@ -835,7 +838,10 @@ fn blast(@builtin(global_invocation_id) gid: vec3<u32>) {
 
   var cell = blastGrid[idx];
   let id = cell.elementId;
-  var pressure = blastPressureIn[idx];
+  let here = blastPressureIn[idx];
+
+  // injected = blastStrength only when this cell detonates THIS tick, else 0.
+  var injected = 0.0;
 
   // Detonation: explosive hot enough (proxy temp — NOT the chain walk).
   let isExp = (blastFlags[id] & 256u) != 0u; // EXPLOSIVE_BIT = 1u<<8u
@@ -845,10 +851,24 @@ fn blast(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (proxyTemp >= detTemp) {
       let product = u32(blastMaterials[id * 4u + 1u].x);       // burnProduct at slot 4
       cell = Cell(product, blastProductEnthalpy(product, FIRE_TEMP));
-      pressure = pressure + blastMaterials[id * 4u + 3u].w;    // + blastStrength at slot 15
+      injected = blastMaterials[id * 4u + 3u].w;                // blastStrength at slot 15
     }
   }
 
+  // Pressure diffusion + decay — mirrored verbatim from src/blast.ts's
+  // nextPressure. Off-grid neighbours read as 0.0 (same edge guard the
+  // heat pass uses above).
+  var up = 0.0;
+  var down = 0.0;
+  var left = 0.0;
+  var right = 0.0;
+  if (y > 0) { up = blastPressureIn[cellIndex(x, y - 1, width)]; }
+  if (y < height - 1) { down = blastPressureIn[cellIndex(x, y + 1, width)]; }
+  if (x > 0) { left = blastPressureIn[cellIndex(x - 1, y, width)]; }
+  if (x < width - 1) { right = blastPressureIn[cellIndex(x + 1, y, width)]; }
+  let neighbourAvg = (up + down + left + right) / 4.0;
+  let mixed = here * (1.0 - BLAST_DIFFUSE) + neighbourAvg * BLAST_DIFFUSE;
+
   blastGrid[idx] = cell;
-  blastPressureOut[idx] = pressure;
+  blastPressureOut[idx] = mixed * BLAST_DECAY + injected;
 }
