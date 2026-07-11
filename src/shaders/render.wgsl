@@ -19,6 +19,10 @@ struct RenderParams {
 @group(0) @binding(2) var<storage, read> palette: array<vec4<f32>>;
 @group(0) @binding(3) var<storage, read> materials: array<vec4<f32>>; // 4 vec4/element; see src/elements.ts materialProperties()
 @group(0) @binding(4) var<storage, read> chains: array<vec4<f32>>;
+// Blast pressure field (Phase 3b), location-indexed — same layout as the
+// simulation's `blastPressureOut`. Read-only here; used only for the debug
+// tint below so the otherwise-invisible pressure field can be watched.
+@group(0) @binding(5) var<storage, read> pressureField: array<f32>;
 
 fn heatCapacityOf(id: u32) -> f32 {
   return materials[id * 4u].z;
@@ -104,9 +108,23 @@ fn vertexMain(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
 fn fragmentMain(in: VertexOutput) -> @location(0) vec4<f32> {
   let cellX = min(u32(in.uv.x * f32(params.width)), params.width - 1u);
   let cellY = min(u32(in.uv.y * f32(params.height)), params.height - 1u);
-  let cell = grid[cellY * params.width + cellX];
+  let idx = cellY * params.width + cellX;
+  let cell = grid[idx];
+
+  var color: vec4<f32>;
   if (params.heatMap != 0u) {
-    return temperatureColor(temperatureFromEnthalpy(cell.elementId, cell.enthalpy));
+    color = temperatureColor(temperatureFromEnthalpy(cell.elementId, cell.enthalpy));
+  } else {
+    color = palette[cell.elementId];
   }
-  return palette[cell.elementId];
+
+  // Debug pressure tint (Phase 3b): faint magenta blended in proportional to
+  // blast pressure at this cell, purely so the (otherwise invisible)
+  // pressure field can be watched during verification. Kept subtle — must
+  // not obscure the underlying material/heat colour.
+  let pressure = clamp(pressureField[idx] / 50.0, 0.0, 1.0);
+  let pressureTint = vec3<f32>(1.0, 0.0, 1.0);
+  color = vec4<f32>(mix(color.rgb, pressureTint, pressure * 0.35), color.a);
+
+  return color;
 }

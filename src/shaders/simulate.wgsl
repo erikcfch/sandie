@@ -808,12 +808,21 @@ fn heat(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 // ---- Blast pass (Phase 3b) — its own bind group layout ----
+const FIRE_TEMP: f32 = 400.0;
+const SMOKE_TEMP: f32 = 80.0;
+
 @group(0) @binding(0) var<uniform> blastParams: SimParams;
 @group(0) @binding(1) var<storage, read_write> blastGrid: array<Cell>;
 @group(0) @binding(2) var<storage, read> blastPressureIn: array<f32>;
 @group(0) @binding(3) var<storage, read_write> blastPressureOut: array<f32>;
 @group(0) @binding(4) var<storage, read> blastMaterials: array<vec4<f32>>;
 @group(0) @binding(5) var<storage, read> blastFlags: array<u32>;
+
+// Enthalpy for a CHAINLESS product (Fire/Smoke/burnProduct) at a fixed temp.
+// Chainless => enthalpy = temp * heatCapacity (no chain walk => Dawn-safe).
+fn blastProductEnthalpy(product: u32, temp: f32) -> f32 {
+  return temp * blastMaterials[product * 4u].z; // heatCapacity at .z
+}
 
 @compute @workgroup_size(8, 8)
 fn blast(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -823,6 +832,23 @@ fn blast(@builtin(global_invocation_id) gid: vec3<u32>) {
   let y = i32(gid.y);
   if (x >= width || y >= height) { return; }
   let idx = cellIndex(x, y, width);
-  // Task 2: inert — carry pressure through, leave the grid untouched.
-  blastPressureOut[idx] = blastPressureIn[idx];
+
+  var cell = blastGrid[idx];
+  let id = cell.elementId;
+  var pressure = blastPressureIn[idx];
+
+  // Detonation: explosive hot enough (proxy temp — NOT the chain walk).
+  let isExp = (blastFlags[id] & 256u) != 0u; // EXPLOSIVE_BIT = 1u<<8u
+  if (isExp) {
+    let proxyTemp = cell.enthalpy / blastMaterials[id * 4u].z; // heatCapacity at .z
+    let detTemp = blastMaterials[id * 4u + 3u].z;              // detonationTemp at slot 14
+    if (proxyTemp >= detTemp) {
+      let product = u32(blastMaterials[id * 4u + 1u].x);       // burnProduct at slot 4
+      cell = Cell(product, blastProductEnthalpy(product, FIRE_TEMP));
+      pressure = pressure + blastMaterials[id * 4u + 3u].w;    // + blastStrength at slot 15
+    }
+  }
+
+  blastGrid[idx] = cell;
+  blastPressureOut[idx] = pressure;
 }

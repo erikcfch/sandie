@@ -193,6 +193,7 @@ export class Simulation {
         { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
         { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
         { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
+        { binding: 5, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
       ],
     });
 
@@ -301,6 +302,7 @@ export class Simulation {
         { binding: 2, resource: { buffer: this.paletteBuffer } },
         { binding: 3, resource: { buffer: this.materialsBuffer } },
         { binding: 4, resource: { buffer: this.chainsBuffer } },
+        { binding: 5, resource: { buffer: this.pressureFieldBuffer } },
       ],
     });
 
