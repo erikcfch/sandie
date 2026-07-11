@@ -813,6 +813,10 @@ const SMOKE_TEMP: f32 = 80.0;
 // Mirrored verbatim from src/blast.ts's nextPressure — do not let these drift.
 const BLAST_DECAY: f32 = 0.72;
 const BLAST_DIFFUSE: f32 = 0.5;
+// Mirrored verbatim from src/blast.ts's blastEffect thresholds — do not let these drift.
+const DESTROY_PRESSURE: f32 = 12.0;
+const CHAIN_PRESSURE: f32 = 8.0;
+const IGNITE_PRESSURE: f32 = 4.0;
 
 @group(0) @binding(0) var<uniform> blastParams: SimParams;
 @group(0) @binding(1) var<storage, read_write> blastGrid: array<Cell>;
@@ -843,6 +847,10 @@ fn blast(@builtin(global_invocation_id) gid: vec3<u32>) {
   // injected = blastStrength only when this cell detonates THIS tick, else 0.
   var injected = 0.0;
 
+  // A cell transforms AT MOST ONCE per tick — heat-detonation (below) and the
+  // pressure effects (chain/destroy/ignite, further below) are mutually exclusive.
+  var detonated = false;
+
   // Detonation: explosive hot enough (proxy temp — NOT the chain walk).
   let isExp = (blastFlags[id] & 256u) != 0u; // EXPLOSIVE_BIT = 1u<<8u
   if (isExp) {
@@ -852,6 +860,7 @@ fn blast(@builtin(global_invocation_id) gid: vec3<u32>) {
       let product = u32(blastMaterials[id * 4u + 1u].x);       // burnProduct at slot 4
       cell = Cell(product, blastProductEnthalpy(product, FIRE_TEMP));
       injected = blastMaterials[id * 4u + 3u].w;                // blastStrength at slot 15
+      detonated = true;
     }
   }
 
@@ -868,7 +877,30 @@ fn blast(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (x < width - 1) { right = blastPressureIn[cellIndex(x + 1, y, width)]; }
   let neighbourAvg = (up + down + left + right) / 4.0;
   let mixed = here * (1.0 - BLAST_DIFFUSE) + neighbourAvg * BLAST_DIFFUSE;
+  var newPressure = mixed * BLAST_DECAY + injected;
+
+  // Pressure effects — chain-detonate / destroy / ignite. A cell that already
+  // heat-detonated this tick (above) must not also be affected here.
+  // use blast* bindings only; blastProductEnthalpy defined above (Task 3)
+  if (!detonated) {
+    let flammable = (blastFlags[id] & 4u) != 0u;   // FLAMMABLE_BIT
+    let explosive = (blastFlags[id] & 256u) != 0u; // EXPLOSIVE_BIT
+    let product = u32(blastMaterials[id * 4u + 1u].x); // burnProduct
+    let roll = f32(hash(u32(x), u32(y), blastParams.frame) & 0xffffu) / 65536.0;
+    if (explosive && newPressure >= CHAIN_PRESSURE) {
+      cell = Cell(product, blastProductEnthalpy(product, FIRE_TEMP));
+      newPressure = newPressure + blastMaterials[id * 4u + 3u].w; // chain injects its own strength
+    } else if (newPressure >= DESTROY_PRESSURE && roll < 0.6) {
+      if (flammable) {
+        cell = Cell(product, blastProductEnthalpy(product, FIRE_TEMP));
+      } else if (id != EMPTY) {
+        cell = Cell(SMOKE, blastProductEnthalpy(SMOKE, SMOKE_TEMP)); // inert → dust
+      }
+    } else if (flammable && newPressure >= IGNITE_PRESSURE && roll < 0.5) {
+      cell = Cell(product, blastProductEnthalpy(product, FIRE_TEMP));
+    }
+  }
 
   blastGrid[idx] = cell;
-  blastPressureOut[idx] = mixed * BLAST_DECAY + injected;
+  blastPressureOut[idx] = newPressure;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BLAST_DECAY, nextPressure } from './blast';
+import { BLAST_DECAY, blastEffect, CHAIN_PRESSURE, DESTROY_PRESSURE, IGNITE_PRESSURE, nextPressure } from './blast';
 
 describe('pressure field update', () => {
   it('an isolated pressure cell decays toward zero', () => {
@@ -15,5 +15,25 @@ describe('pressure field update', () => {
   });
   it('is monotonic in injection', () => {
     expect(nextPressure(10, 0, 0, 0, 0, 20)).toBeGreaterThan(nextPressure(10, 0, 0, 0, 0, 0));
+  });
+});
+
+describe('blast effect selection', () => {
+  it('below all thresholds does nothing', () => {
+    expect(blastEffect(0, { flammable: false, explosive: false })).toBe('none');
+  });
+  it('an explosive over the chain threshold detonates', () => {
+    expect(blastEffect(CHAIN_PRESSURE, { flammable: false, explosive: true })).toBe('detonate');
+  });
+  it('a flammable over the ignite threshold ignites', () => {
+    expect(blastEffect(IGNITE_PRESSURE, { flammable: true, explosive: false })).toBe('ignite');
+  });
+  it('anything over the destroy threshold is destroyed', () => {
+    expect(blastEffect(DESTROY_PRESSURE, { flammable: false, explosive: false })).toBe('destroy');
+  });
+  it('thresholds are ordered destroy >= chain >= ignite > 0', () => {
+    expect(DESTROY_PRESSURE).toBeGreaterThanOrEqual(CHAIN_PRESSURE);
+    expect(CHAIN_PRESSURE).toBeGreaterThanOrEqual(IGNITE_PRESSURE);
+    expect(IGNITE_PRESSURE).toBeGreaterThan(0);
   });
 });
