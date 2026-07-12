@@ -16,7 +16,8 @@
 - **Flags:** `source` (Battery) = `materialFlags` bit 9 (`1<<9`=512); `ground` (Ground) = bit 10 (`1<<10`=1024). `conductive` (bit 5) already exists. Bit 8 = explosive (3b).
 - **Charge field:** `charge` is `vec2<f32>` per cell = `(srcReach, gndReach)`, `CELL_COUNT * 8` bytes; canonical `chargeFieldBuffer` + scratch `chargeNextBuffer`, copy-back after the compute pass, both zeroed on reset.
 - **Reachability rule (per field), mirrored exactly in `electricity.ts` and the shader:** source→`REACH_MAX`; non-conductive→0; else if `maxNeighbourReach ≥ REACH_TAU`→`REACH_MAX`; else `max(0, selfReach - REACH_DECAY)`. **LIVE = `srcReach ≥ REACH_TAU && gndReach ≥ REACH_TAU`.**
-- **Constants (initial; tuned in-browser):** `REACH_MAX=100`, `REACH_TAU=0.5`, `REACH_DECAY=20`, `OHMIC_HEAT=5`, `HOT_CAP=600` (stop adding ohmic heat above this proxy temp so a wire plateaus).
+  > **SUPERSEDED (final-review fix):** this flat-`MAX` rule can't retract a cut wire (an orphaned segment self-sustains at `MAX`). Replaced by a GRADIENT rule `reach = source ? REACH_MAX : max(0, maxNeighbour - REACH_STEP)` (`REACH_DECAY`→`REACH_STEP=1`, no reset-to-`MAX`) — see the design spec's Model note. The shipped code uses the gradient rule.
+- **Constants (initial; tuned in-browser):** `REACH_MAX=100`, `REACH_TAU=0.5`, `REACH_DECAY=20`, `OHMIC_HEAT=5`, `HOT_CAP=600` (stop adding ohmic heat above this proxy temp so a wire plateaus). *(As shipped: `REACH_DECAY` became `REACH_STEP=1` per the fix above.)*
 - **Branch:** `material-electricity` off `master`. Frequent commits; `--no-ff` merge at the end (separate finishing step).
 
 ---
