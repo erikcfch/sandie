@@ -134,14 +134,13 @@ fn fragmentMain(in: VertexOutput) -> @location(0) vec4<f32> {
   let pressureTint = vec3<f32>(1.0, 0.0, 1.0);
   color = vec4<f32>(mix(color.rgb, pressureTint, pressure * 0.35), color.a);
 
-  // Debug electric glow (Phase 3c): subtle cyan blended in where this cell is
-  // LIVE (reachable from both a source and a ground), purely so the
-  // (otherwise invisible) powered path can be watched during verification.
-  // Kept subtle — must not obscure the underlying material/heat colour.
+  // Electric glow (Phase 3c): cyan blended in where this cell is LIVE (reachable
+  // from both a source and a ground), so the powered path lights up. Invisible at
+  // rest (no charge => no glow); prominent enough to read as "powered".
   let charge = chargeField[idx];
   let live = f32(charge.x >= REACH_TAU && charge.y >= REACH_TAU);
   let glowTint = vec3<f32>(0.2, 1.0, 1.0);
-  color = vec4<f32>(mix(color.rgb, glowTint, live * 0.35), color.a);
+  color = vec4<f32>(mix(color.rgb, glowTint, live * 0.6), color.a);
 
   return color;
 }
