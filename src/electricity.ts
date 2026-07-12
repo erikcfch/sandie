@@ -2,18 +2,18 @@
 export const REACH_MAX = 100;
 /** A cell counts as reachable (LIVE-eligible) at/above this. */
 export const REACH_TAU = 0.5;
-/** Per-tick retraction when a cell has no reachable neighbour (cut wire fades). */
-export const REACH_DECAY = 20;
+/** Per-hop drop from a source (range ≈ REACH_MAX/REACH_STEP cells). */
+export const REACH_STEP = 1;
 
-/** One reachability step for one field. `neighbourMax` = max reach among the 4
- * orthogonal neighbours. Mirrored verbatim in simulate.wgsl's electricity pass. */
-export function reachUpdate(
-  selfReach: number, neighbourMax: number, isConductive: boolean, isSource: boolean,
-): number {
+/** One reachability step (gradient / Bellman-Ford relaxation) for one field.
+ * `neighbourMax` = max reach among the 4 orthogonal neighbours. A source pins to
+ * REACH_MAX; a conductor sits one REACH_STEP below its highest neighbour; a
+ * non-conductor is 0. Removing a source collapses the gradient (retraction).
+ * Mirrored verbatim in simulate.wgsl's electricity pass. */
+export function reachUpdate(neighbourMax: number, isConductive: boolean, isSource: boolean): number {
   if (isSource) return REACH_MAX;
   if (!isConductive) return 0;
-  if (neighbourMax >= REACH_TAU) return REACH_MAX;
-  return Math.max(0, selfReach - REACH_DECAY);
+  return Math.max(0, neighbourMax - REACH_STEP);
 }
 
 /** A conductor is live (carries current) only when reachable from BOTH a source
