@@ -1,9 +1,38 @@
 # Electricity — Phase 3c Design Spec
 
 **Date:** 2026-07-11
-**Status:** Approved shape; ready for implementation plan
+**Status:** ✅ DONE — implemented + GPU-verified on branch `material-electricity`
 **Branch:** `material-electricity` (off `master`)
 **Parent:** Phase 3 program — `docs/superpowers/specs/2026-07-10-material-library-phase3-design.md` (3c)
+
+## As built (2026-07-11)
+
+Implemented subagent-driven (5 tasks, each spec/quality-reviewed + in-browser
+verified). Reused 3b's architecture: `charge` is a `vec2<f32>` field (`srcReach`,
+`gndReach`) with a canonical buffer + scratch + per-frame copy-back; the new
+in-place `electricity` pass (own layout, dispatched outside the ping-pong on
+`gridBufferA`) propagates both reachability fields, injects MAX at Battery
+(`source` bit 9) / Ground (`ground` bit 10), and adds ohmic heat where LIVE
+(`srcReach≥τ && gndReach≥τ`). **Dawn-safe** — ohmic heat is a bare `enthalpy +=`
+gated by the proxy temp; no chain walk. `src/electricity.ts` mirrors the
+reachability rule for unit tests. Verified in headed Chrome: a complete
+Battery—Copper—Ground wire fully energises (cyan glow, fronts meeting in the
+middle first), ohmically heats, and **electric-detonates a wired TNT** (ohmic heat
+→ detonationTemp → 3b blast — the 3c↔3b tie); an **open circuit (no ground) is
+dead** (its wired TNT stays intact); idle behaviour unchanged; no grid wipe, no
+console errors. 175 unit tests, typecheck, build green.
+
+**Tuned constants (game-balance):** `REACH_MAX=100`, `REACH_TAU=0.5`,
+`REACH_DECAY=20`, `OHMIC_HEAT=5`, `HOT_CAP=600`; glow blend `0.6` (cyan; a feature,
+invisible at rest). **Kept:** the electric glow + the 3b pressure tint (each
+invisible outside its effect).
+
+**Notes / follow-ups:** reachability propagates ~1 cell/frame, so a long wire
+takes a couple seconds to fully energise — running the `electricity` pass per-tick
+or in substeps would speed it up (deferred, not needed for the demo). Conductors
+must be CONTIGUOUS — a gappy/sparse-painted wire breaks the flood (paint with high
+flow). Battery/Ground are the demo source/sink; the metal conductor roster
+(Iron/Gold/Aluminium) + Salt Water conductivity land in 3d.
 
 ## Motivation
 
