@@ -44,6 +44,8 @@ export interface ElementDef {
   corrosive?: boolean;
   soluble?: boolean;
   conductive?: boolean;
+  source?: boolean;
+  ground?: boolean;
   explosive?: boolean;
   // --- Behavior params ---
   ignitionTemp?: number;
@@ -95,6 +97,8 @@ export const ELEMENTS: readonly ElementDef[] = [
   { id: 26, name: 'Wax', category: 'static', color: [240, 235, 215], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.2, family: 'physical', form: 'static', phase: 'solid', origin: 'organic', metallic: 'nonmetal', realDensity: 0.9, specificHeat: 2.1, meltingPoint: 60 },
   { id: 27, name: 'Molten Wax', category: 'liquid', color: [235, 210, 150], defaultTemp: 70, thermalConductivity: 0.2, family: 'physical', form: 'liquid', phase: 'liquid', origin: 'organic', metallic: 'nonmetal', realDensity: 0.8, specificHeat: 2.2, meltingPoint: 60, viscosityRefLog10: 2.68, viscosityTempCoeff: -0.022 },
   { id: 28, name: 'TNT', category: 'static', color: [180, 60, 50], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.6, family: 'physical', form: 'static', phase: 'solid', origin: 'organic', metallic: 'nonmetal', flammable: true, explosive: true, ignitionTemp: 280, burnProduct: 9, burnRate: 0.4, detonationTemp: 190, blastStrength: 200, realDensity: 1.6, specificHeat: 1.2 },
+  { id: 29, name: 'Battery', category: 'static', color: [70, 200, 90], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.3, family: 'physical', form: 'static', phase: 'solid', origin: 'inorganic', metallic: 'nonmetal', conductive: true, source: true, realDensity: 2.5, specificHeat: 0.8 },
+  { id: 30, name: 'Ground', category: 'static', color: [60, 60, 70], defaultTemp: AMBIENT_TEMP, thermalConductivity: 0.3, family: 'physical', form: 'static', phase: 'solid', origin: 'inorganic', metallic: 'nonmetal', conductive: true, ground: true, realDensity: 2.5, specificHeat: 0.8 },
 ];
 
 const BY_NAME = new Map(ELEMENTS.map((e) => [e.name, e]));
@@ -154,6 +158,8 @@ export function materialFlags(): Uint32Array {
     if (element.origin === 'organic') f |= 1 << 6;
     if (element.metallic === 'metal') f |= 1 << 7;
     if (element.explosive) f |= 1 << 8;
+    if (element.source) f |= 1 << 9;
+    if (element.ground) f |= 1 << 10;
     data[element.id] = f >>> 0;
   }
   return data;

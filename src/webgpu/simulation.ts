@@ -27,8 +27,9 @@ const SIM_PARAMS_BYTES = 24; // SimParams{width, height, frame, ambientTemp, rea
 // One SimParams slot per block-CA dispatch that needs its own frame value:
 // TICKS_PER_FRAME movement/heat ticks (movement+heat within a tick share a
 // slot) + 1 soak pass + 1 corrode pass (its own slot for a distinct Margolus
-// alignment) + 1 blast pass + LIQUID_SUBSTEPS liquid-leveling passes.
-const SIM_SLOTS = TICKS_PER_FRAME + 3 + LIQUID_SUBSTEPS;
+// alignment) + 1 blast pass + 1 electricity pass + LIQUID_SUBSTEPS
+// liquid-leveling passes.
+const SIM_SLOTS = TICKS_PER_FRAME + 4 + LIQUID_SUBSTEPS;
 
 export interface PaintInput {
   active: boolean;
@@ -63,6 +64,8 @@ export class Simulation {
   private readonly gridBufferB: GPUBuffer;
   private readonly pressureFieldBuffer: GPUBuffer;
   private readonly pressureNextBuffer: GPUBuffer;
+  private readonly chargeFieldBuffer: GPUBuffer;
+  private readonly chargeNextBuffer: GPUBuffer;
   private readonly paletteBuffer: GPUBuffer;
   private readonly materialsBuffer: GPUBuffer;
   private readonly chainsBuffer: GPUBuffer;
@@ -78,6 +81,7 @@ export class Simulation {
   private readonly paintBindGroup: GPUBindGroup;
   private readonly renderBindGroup: GPUBindGroup;
   private readonly blastBindGroup: GPUBindGroup;
+  private readonly electricityBindGroup: GPUBindGroup;
 
   private readonly movementPipeline: GPUComputePipeline;
   private readonly heatPipeline: GPUComputePipeline;
@@ -87,6 +91,7 @@ export class Simulation {
   private readonly paintPipeline: GPUComputePipeline;
   private readonly renderPipeline: GPURenderPipeline;
   private readonly blastPipeline: GPUComputePipeline;
+  private readonly electricityPipeline: GPUComputePipeline;
 
   private frame = 0;
 
@@ -123,6 +128,14 @@ export class Simulation {
     });
     this.pressureNextBuffer = device.createBuffer({
       label: 'pressure-next', size: CELL_COUNT * 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+    });
+    this.chargeFieldBuffer = device.createBuffer({
+      label: 'charge-field', size: CELL_COUNT * 8,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, // copy DESTINATION only (chargeNext -> here)
+    });
+    this.chargeNextBuffer = device.createBuffer({
+      label: 'charge-next', size: CELL_COUNT * 8,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
 
@@ -194,6 +207,7 @@ export class Simulation {
         { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
         { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
         { binding: 5, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
+        { binding: 6, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
       ],
     });
 
@@ -259,6 +273,33 @@ export class Simulation {
       ],
     });
 
+    const electricityBindGroupLayout = device.createBindGroupLayout({
+      label: 'electricity-bgl',
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform', hasDynamicOffset: true } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+        { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+      ],
+    });
+    const electricityPipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [electricityBindGroupLayout] });
+    this.electricityPipeline = device.createComputePipeline({
+      layout: electricityPipelineLayout, compute: { module: simModule, entryPoint: 'electricity' },
+    });
+    this.electricityBindGroup = device.createBindGroup({
+      layout: electricityBindGroupLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.simParamsBuffer, offset: 0, size: SIM_PARAMS_BYTES } },
+        { binding: 1, resource: { buffer: this.gridBufferA } },
+        { binding: 2, resource: { buffer: this.chargeFieldBuffer } },
+        { binding: 3, resource: { buffer: this.chargeNextBuffer } },
+        { binding: 4, resource: { buffer: this.materialsBuffer } },
+        { binding: 5, resource: { buffer: this.materialFlagsBuffer } },
+      ],
+    });
+
     this.movementBindGroup = device.createBindGroup({
       layout: simBindGroupLayout,
       entries: [
@@ -303,6 +344,7 @@ export class Simulation {
         { binding: 3, resource: { buffer: this.materialsBuffer } },
         { binding: 4, resource: { buffer: this.chainsBuffer } },
         { binding: 5, resource: { buffer: this.pressureFieldBuffer } },
+        { binding: 6, resource: { buffer: this.chargeFieldBuffer } },
       ],
     });
 
@@ -430,13 +472,20 @@ export class Simulation {
         dispatchSim(this.soakPipeline, TICKS_PER_FRAME);
         dispatchSim(this.corrodePipeline, TICKS_PER_FRAME + 1);
         for (let s = 0; s < LIQUID_SUBSTEPS; s++) {
-          dispatchSim(this.liquidMovementPipeline, TICKS_PER_FRAME + 3 + s);
+          dispatchSim(this.liquidMovementPipeline, TICKS_PER_FRAME + 4 + s);
         }
 
         // Grid canonical in A here. blast runs in place on A (not part of the
         // ping-pong), reading/writing pressure through its own bind group.
         pass.setPipeline(this.blastPipeline);
         pass.setBindGroup(0, this.blastBindGroup, [(TICKS_PER_FRAME + 2) * this.paramsStride]);
+        pass.dispatchWorkgroups(WORKGROUPS_X, WORKGROUPS_Y);
+
+        // Grid still canonical in A here. electricity runs in place on A (not
+        // part of the ping-pong), reading/writing charge through its own bind
+        // group. Phase 3c Task 2: inert pass-through only.
+        pass.setPipeline(this.electricityPipeline);
+        pass.setBindGroup(0, this.electricityBindGroup, [(TICKS_PER_FRAME + 3) * this.paramsStride]);
         pass.dispatchWorkgroups(WORKGROUPS_X, WORKGROUPS_Y);
 
         this.frame += SIM_SLOTS;
@@ -446,6 +495,7 @@ export class Simulation {
 
       if (simulate) {
         encoder.copyBufferToBuffer(this.pressureNextBuffer, 0, this.pressureFieldBuffer, 0, CELL_COUNT * 4);
+        encoder.copyBufferToBuffer(this.chargeNextBuffer, 0, this.chargeFieldBuffer, 0, CELL_COUNT * 8);
       }
     }
 
@@ -490,6 +540,9 @@ export class Simulation {
     const zeros = new Float32Array(CELL_COUNT);
     this.device.queue.writeBuffer(this.pressureFieldBuffer, 0, zeros);
     this.device.queue.writeBuffer(this.pressureNextBuffer, 0, zeros);
+    const chargeZeros = new Float32Array(CELL_COUNT * 2);
+    this.device.queue.writeBuffer(this.chargeFieldBuffer, 0, chargeZeros);
+    this.device.queue.writeBuffer(this.chargeNextBuffer, 0, chargeZeros);
     this.frame = 0;
   }
 }

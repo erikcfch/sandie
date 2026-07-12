@@ -23,6 +23,14 @@ struct RenderParams {
 // simulation's `blastPressureOut`. Read-only here; used only for the debug
 // tint below so the otherwise-invisible pressure field can be watched.
 @group(0) @binding(5) var<storage, read> pressureField: array<f32>;
+// Electricity reachability field (Phase 3c), (.x=srcReach, .y=gndReach) —
+// same layout as the simulation's `elecChargeOut`. Read-only here; used only
+// for the glow tint below so the (otherwise invisible) powered path can be
+// watched.
+@group(0) @binding(6) var<storage, read> chargeField: array<vec2<f32>>;
+
+// Mirrored verbatim from src/electricity.ts — do not let this drift.
+const REACH_TAU: f32 = 0.5;
 
 fn heatCapacityOf(id: u32) -> f32 {
   return materials[id * 4u].z;
@@ -125,6 +133,14 @@ fn fragmentMain(in: VertexOutput) -> @location(0) vec4<f32> {
   let pressure = clamp(pressureField[idx] / 50.0, 0.0, 1.0);
   let pressureTint = vec3<f32>(1.0, 0.0, 1.0);
   color = vec4<f32>(mix(color.rgb, pressureTint, pressure * 0.35), color.a);
+
+  // Electric glow (Phase 3c): cyan blended in where this cell is LIVE (reachable
+  // from both a source and a ground), so the powered path lights up. Invisible at
+  // rest (no charge => no glow); prominent enough to read as "powered".
+  let charge = chargeField[idx];
+  let live = f32(charge.x >= REACH_TAU && charge.y >= REACH_TAU);
+  let glowTint = vec3<f32>(0.2, 1.0, 1.0);
+  color = vec4<f32>(mix(color.rgb, glowTint, live * 0.6), color.a);
 
   return color;
 }
