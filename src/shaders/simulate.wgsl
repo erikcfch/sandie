@@ -958,3 +958,23 @@ fn blast(@builtin(global_invocation_id) gid: vec3<u32>) {
   blastGrid[idx] = cell;
   blastPressureOut[idx] = newPressure;
 }
+
+// ---- Electricity pass (Phase 3c) — its own bind group layout ----
+@group(0) @binding(0) var<uniform> elecParams: SimParams;
+@group(0) @binding(1) var<storage, read_write> elecGrid: array<Cell>;
+@group(0) @binding(2) var<storage, read> elecChargeIn: array<vec2<f32>>;
+@group(0) @binding(3) var<storage, read_write> elecChargeOut: array<vec2<f32>>;
+@group(0) @binding(4) var<storage, read> elecMaterials: array<vec4<f32>>;
+@group(0) @binding(5) var<storage, read> elecFlags: array<u32>;
+
+@compute @workgroup_size(8, 8)
+fn electricity(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let width = i32(elecParams.width);
+  let height = i32(elecParams.height);
+  let x = i32(gid.x);
+  let y = i32(gid.y);
+  if (x >= width || y >= height) { return; }
+  let idx = cellIndex(x, y, width);
+  // Task 2: inert — carry charge through, leave the grid untouched.
+  elecChargeOut[idx] = elecChargeIn[idx];
+}
