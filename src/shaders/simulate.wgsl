@@ -976,6 +976,9 @@ const CONDUCTIVE_BIT: u32 = 32u;  // 1u << 5u
 const SOURCE_BIT: u32 = 512u;     // 1u << 9u
 const GROUND_BIT: u32 = 1024u;    // 1u << 10u
 
+const OHMIC_HEAT: f32 = 5.0;
+const HOT_CAP: f32 = 600.0;
+
 // One reachability step for one field. Mirrors src/electricity.ts's
 // reachUpdate() exactly.
 fn reachUpdate(selfReach: f32, neighbourMax: f32, isConductive: bool, isSource: bool) -> f32 {
@@ -1029,5 +1032,12 @@ fn electricity(@builtin(global_invocation_id) gid: vec3<u32>) {
 
   let newSrc = reachUpdate(selfCharge.x, maxNeighbourSrc, isConductive, isSourceCell);
   let newGnd = reachUpdate(selfCharge.y, maxNeighbourGnd, isConductive, isGroundCell);
+
+  var cell = elecGrid[idx];
+  if (newSrc >= REACH_TAU && newGnd >= REACH_TAU) {
+    let proxyTemp = cell.enthalpy / elecMaterials[cell.elementId * 4u].z; // heatCapacity at .z
+    if (proxyTemp < HOT_CAP) { cell.enthalpy = cell.enthalpy + OHMIC_HEAT; }
+  }
+  elecGrid[idx] = cell;
   elecChargeOut[idx] = vec2<f32>(newSrc, newGnd);
 }
