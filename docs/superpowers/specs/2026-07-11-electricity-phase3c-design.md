@@ -23,15 +23,22 @@ dead** (its wired TNT stays intact); idle behaviour unchanged; no grid wipe, no
 console errors. 175 unit tests, typecheck, build green.
 
 **Tuned constants (game-balance):** `REACH_MAX=100`, `REACH_TAU=0.5`,
-`REACH_DECAY=20`, `OHMIC_HEAT=5`, `HOT_CAP=600`; glow blend `0.6` (cyan; a feature,
+`REACH_STEP=1` (gradient per-hop drop → range ≈ 100 cells/source), `OHMIC_HEAT=5`,
+`HOT_CAP=600`; glow blend `0.6` (cyan; a feature,
 invisible at rest). **Kept:** the electric glow + the 3b pressure tint (each
 invisible outside its effect).
 
+**Final-review fix:** the reachability model was changed from flat-`MAX` to the
+GRADIENT rule above (see Model note) so a CUT wire retracts — GPU-verified: a live
+Battery—Copper—Ground wire goes fully dark when a non-conductive plug breaks it.
+
 **Notes / follow-ups:** reachability propagates ~1 cell/frame, so a long wire
 takes a couple seconds to fully energise — running the `electricity` pass per-tick
-or in substeps would speed it up (deferred, not needed for the demo). Conductors
-must be CONTIGUOUS — a gappy/sparse-painted wire breaks the flood (paint with high
-flow). Battery/Ground are the demo source/sink; the metal conductor roster
+or in substeps would speed it up (deferred, not needed for the demo). Effective
+range ≈ 100 cells/source (`REACH_MAX/REACH_STEP`), so very long wires read dead in
+the middle — a realistic "resistance"; raise `REACH_MAX` / lower `REACH_STEP` for
+longer reach. Conductors must be CONTIGUOUS — a gappy/sparse-painted wire breaks
+the flood (paint with high flow). Battery/Ground are the demo source/sink; the metal conductor roster
 (Iron/Gold/Aluminium) + Salt Water conductivity land in 3d.
 
 ## Motivation
@@ -66,20 +73,30 @@ ground through conductive cells. Two scalar fields per cell:
 - `srcReach` — floods out from Batteries through conductive cells.
 - `gndReach` — floods out from Grounds through conductive cells.
 
-**Propagation update (per field, per tick), with decay-retraction:**
+**Propagation update — a GRADIENT (Bellman-Ford relaxation), per field, per tick:**
 ```
 reach(cell) =
-  isSourceForThisField(cell)                         -> MAX          // Battery for src, Ground for gnd
-  else if !isConductive(cell)                        -> 0            // charge only in conductors
-  else if any conductive neighbour has reach >= TAU  -> MAX          // reset from a live neighbour
-  else                                               -> max(0, reach(cell) - DECAY)   // fade if cut
+  isSourceForThisField(cell)   -> MAX                              // Battery for src, Ground for gnd
+  else if !isConductive(cell)  -> 0                                // charge only in conductors
+  else                         -> max(0, maxNeighbourReach - STEP) // one STEP below the best neighbour
 ```
 
-- **No distance falloff along a live wire:** each conductive cell resets to `MAX`
-  from any reachable conductive neighbour, so an arbitrarily long connected wire
-  stays `MAX` (magnitude is not "current strength" — it is reachability).
-- **Retraction on cut:** a cell that loses all reachable neighbours has no reset and
-  decays to 0 within `~MAX/DECAY` ticks, so cutting a wire kills the downstream part.
+> **Model note (final-review fix):** an earlier "flat-`MAX`" variant (reset a
+> conductor to `MAX` whenever *any* neighbour ≥ TAU) was tried and rejected — it
+> makes a *disconnected* wire a self-sustaining fixed point (every cell mutually
+> refreshes at `MAX` with no source), so cutting a live wire never retracts and it
+> keeps ohmically heating. A memoryless local CA can't have BOTH flat-`MAX` and
+> retraction; the gradient trades the flat field for a finite range and correct
+> retraction (the better deal).
+
+- **Gradient from sources:** `reach = MAX - hopDistance·STEP`, so it descends away
+  from a source. Effective range ≈ `MAX/STEP` cells from a source (≈ `2·MAX/STEP`
+  across a complete Battery↔Ground wire) — beyond that the middle drops below TAU
+  and reads dead (a realistic "wire resistance"). Tune via `STEP`/`MAX`.
+- **Retraction on cut:** an orphaned region has no `MAX` anchor, so every cell takes
+  `maxNeighbour - STEP` and the region-wide max strictly decreases by `STEP`/tick →
+  collapses to 0 within `~MAX/STEP` ticks. Cutting a wire kills BOTH halves (each
+  loses one of the two anchors). GPU-verified: a live wire goes dark on cut.
 - **Front advances 1 cell/tick;** an N-cell wire energises over N ticks (run the pass
   per tick, or a few substeps/frame if faster energising is wanted — a tuning knob).
 
@@ -129,11 +146,12 @@ decision for unit tests, matching the shader.
 | Ohmic heating | LIVE cell `enthalpy += OHMIC_HEAT` (the only new effect) |
 | Ignite flammables | **emergent** — hot wire raises neighbour Wood past ignitionTemp (existing `heat` rule) |
 | Detonate explosives | **emergent** — hot wire raises neighbour TNT past detonationTemp (3b `blast`) |
-| Glow | render tints LIVE cells (`srcReach*gndReach > 0`) an electric colour |
+| Glow | render tints LIVE cells (`srcReach ≥ TAU && gndReach ≥ TAU`) an electric colour |
 
 ## Constants (initial; tuned in-browser)
 
-`REACH_MAX`, `REACH_TAU` (LIVE threshold), `REACH_DECAY` (retraction speed vs range),
+`REACH_MAX`, `REACH_TAU` (LIVE threshold), `REACH_STEP` (gradient per-hop drop —
+sets both range ≈ `MAX/STEP` and retraction speed ≈ `MAX/STEP` ticks),
 `OHMIC_HEAT` (per-tick enthalpy add), and a `HOT_CAP` so a wire plateaus rather than
 runs away. Game-balance values, tuned live like 3b's blast constants.
 
