@@ -468,3 +468,22 @@ describe('explosives', () => {
     }
   });
 });
+
+describe('electricity', () => {
+  it('adds Battery (source) and Ground (sink), both conductive', () => {
+    const bat = getElementByName('Battery');
+    const gnd = getElementByName('Ground');
+    expect(bat.source).toBe(true);
+    expect(bat.conductive).toBe(true);
+    expect(gnd.ground).toBe(true);
+    expect(gnd.conductive).toBe(true);
+    expect([bat.id, gnd.id]).toEqual([29, 30]);
+  });
+  it('packs source at bit 9 and ground at bit 10', () => {
+    const flags = materialFlags();
+    expect((flags[getElementByName('Battery').id] >> 9) & 1).toBe(1);
+    expect((flags[getElementByName('Ground').id] >> 10) & 1).toBe(1);
+    expect((flags[getElementByName('Copper').id] >> 9) & 1).toBe(0); // conductive but not a source
+    expect((flags[getElementByName('Copper').id] >> 5) & 1).toBe(1); // Copper still conductive
+  });
+});
