@@ -967,6 +967,24 @@ fn blast(@builtin(global_invocation_id) gid: vec3<u32>) {
 @group(0) @binding(4) var<storage, read> elecMaterials: array<vec4<f32>>;
 @group(0) @binding(5) var<storage, read> elecFlags: array<u32>;
 
+// Mirrored verbatim from src/electricity.ts — do not let these drift.
+const REACH_MAX: f32 = 100.0;
+const REACH_TAU: f32 = 0.5;
+const REACH_DECAY: f32 = 20.0;
+
+const CONDUCTIVE_BIT: u32 = 32u;  // 1u << 5u
+const SOURCE_BIT: u32 = 512u;     // 1u << 9u
+const GROUND_BIT: u32 = 1024u;    // 1u << 10u
+
+// One reachability step for one field. Mirrors src/electricity.ts's
+// reachUpdate() exactly.
+fn reachUpdate(selfReach: f32, neighbourMax: f32, isConductive: bool, isSource: bool) -> f32 {
+  if (isSource) { return REACH_MAX; }
+  if (!isConductive) { return 0.0; }
+  if (neighbourMax >= REACH_TAU) { return REACH_MAX; }
+  return max(0.0, selfReach - REACH_DECAY);
+}
+
 @compute @workgroup_size(8, 8)
 fn electricity(@builtin(global_invocation_id) gid: vec3<u32>) {
   let width = i32(elecParams.width);
@@ -975,6 +993,41 @@ fn electricity(@builtin(global_invocation_id) gid: vec3<u32>) {
   let y = i32(gid.y);
   if (x >= width || y >= height) { return; }
   let idx = cellIndex(x, y, width);
-  // Task 2: inert — carry charge through, leave the grid untouched.
-  elecChargeOut[idx] = elecChargeIn[idx];
+
+  let here = elecGrid[idx];
+  let flags = elecFlags[here.elementId];
+  let isConductive = (flags & CONDUCTIVE_BIT) != 0u;
+  let isSourceCell = (flags & SOURCE_BIT) != 0u;
+  let isGroundCell = (flags & GROUND_BIT) != 0u;
+
+  let selfCharge = elecChargeIn[idx];
+
+  // 4 orthogonal neighbours; off-grid reads as vec2(0,0), bounds-guarded the
+  // same way the heat/blast passes handle grid edges.
+  var maxNeighbourSrc = 0.0;
+  var maxNeighbourGnd = 0.0;
+  if (x > 0) {
+    let n = elecChargeIn[cellIndex(x - 1, y, width)];
+    maxNeighbourSrc = max(maxNeighbourSrc, n.x);
+    maxNeighbourGnd = max(maxNeighbourGnd, n.y);
+  }
+  if (x < width - 1) {
+    let n = elecChargeIn[cellIndex(x + 1, y, width)];
+    maxNeighbourSrc = max(maxNeighbourSrc, n.x);
+    maxNeighbourGnd = max(maxNeighbourGnd, n.y);
+  }
+  if (y > 0) {
+    let n = elecChargeIn[cellIndex(x, y - 1, width)];
+    maxNeighbourSrc = max(maxNeighbourSrc, n.x);
+    maxNeighbourGnd = max(maxNeighbourGnd, n.y);
+  }
+  if (y < height - 1) {
+    let n = elecChargeIn[cellIndex(x, y + 1, width)];
+    maxNeighbourSrc = max(maxNeighbourSrc, n.x);
+    maxNeighbourGnd = max(maxNeighbourGnd, n.y);
+  }
+
+  let newSrc = reachUpdate(selfCharge.x, maxNeighbourSrc, isConductive, isSourceCell);
+  let newGnd = reachUpdate(selfCharge.y, maxNeighbourGnd, isConductive, isGroundCell);
+  elecChargeOut[idx] = vec2<f32>(newSrc, newGnd);
 }
