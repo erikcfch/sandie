@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ELEMENTS, colorPalette, getElement, getElementByName, materialProperties, materialFlags } from './elements';
 import { chainCountOf } from './chains';
 import { simDensity } from './density';
+import { THRESHOLD_REACTIONS } from './thresholdReactions';
 
 const sim = (name: string) => {
   const e = getElementByName(name);
@@ -314,7 +315,9 @@ describe('capabilities and reference values', () => {
     expect(wood.ignitionTemp).toBe(300);
     expect(wood.burnProduct).toBe(getElementByName('Fire').id);
     expect(wood.burnRate).toBe(1);
-    expect(ELEMENTS.filter((e) => e.flammable).map((e) => e.name)).toEqual(['Wood', 'TNT']);
+    expect(ELEMENTS.filter((e) => e.flammable).map((e) => e.name)).toEqual(
+      ['Wood', 'TNT', 'Oil', 'Gasoline', 'Gasoline Vapor', 'Alcohol', 'Coal', 'Methane'],
+    );
   });
   it('acids are corrosive and copper is a conductive metal', () => {
     for (const n of ['Sulfuric Acid (Dilute)', 'Sulfuric Acid (Very Dilute)', 'Sulfuric Acid (Concentrated)', 'Sulfuric Acid (Fuming)'])
@@ -485,5 +488,42 @@ describe('electricity', () => {
     expect((flags[getElementByName('Ground').id] >> 10) & 1).toBe(1);
     expect((flags[getElementByName('Copper').id] >> 9) & 1).toBe(0); // conductive but not a source
     expect((flags[getElementByName('Copper').id] >> 5) & 1).toBe(1); // Copper still conductive
+  });
+});
+
+describe('fuels (3d-1)', () => {
+  const byName = (n: string) => getElementByName(n);
+  it('adds the seven fuel/combustion materials at ids 31-37', () => {
+    expect([
+      byName('Oil').id, byName('Gasoline').id, byName('Gasoline Vapor').id,
+      byName('Alcohol').id, byName('Coal').id, byName('Ash').id, byName('Methane').id,
+    ]).toEqual([31, 32, 33, 34, 35, 36, 37]);
+  });
+  it('makes the fuels flammable and burn to Fire (Coal to Ash)', () => {
+    for (const n of ['Oil', 'Gasoline', 'Gasoline Vapor', 'Alcohol', 'Coal', 'Methane']) {
+      expect(byName(n).flammable).toBe(true);
+      expect(byName(n).ignitionTemp).toBeGreaterThan(0);
+    }
+    for (const n of ['Oil', 'Gasoline', 'Gasoline Vapor', 'Alcohol', 'Methane'])
+      expect(byName(n).burnProduct).toBe(byName('Fire').id);
+    expect(byName('Coal').burnProduct).toBe(byName('Ash').id);
+    expect(byName('Ash').flammable).toBeFalsy();
+  });
+  it('floats the light liquid fuels on water and sinks coal', () => {
+    const sim = (n: string) => simDensity(byName(n).form, byName(n).realDensity);
+    for (const n of ['Oil', 'Gasoline', 'Alcohol']) expect(sim(n)).toBeLessThan(sim('Water'));
+    expect(sim('Coal')).toBeGreaterThan(sim('Water'));
+  });
+  it('classifies Oil/Gasoline/Alcohol as liquids, Vapor/Methane as gases, Coal/Ash as powders', () => {
+    for (const n of ['Oil', 'Gasoline', 'Alcohol']) expect(byName(n).form).toBe('liquid');
+    for (const n of ['Gasoline Vapor', 'Methane']) expect(byName(n).form).toBe('gas');
+    for (const n of ['Coal', 'Ash']) expect(byName(n).form).toBe('powder');
+  });
+  it('gives Gasoline a threshold reaction that evaporates it to Gasoline Vapor', () => {
+    const r = THRESHOLD_REACTIONS.find(
+      (t) => t.reactant === byName('Gasoline').id && t.product === byName('Gasoline Vapor').id,
+    );
+    expect(r).toBeTruthy();
+    expect(r!.minTemperature).toBeLessThan(byName('Water').boilingPoint ?? 100);
   });
 });

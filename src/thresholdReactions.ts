@@ -45,6 +45,9 @@ export const THRESHOLD_REACTIONS: readonly ThresholdReaction[] = [
   { reactant: getElementByName('Wet Sand').id, minTemperature: 60, product: getElementByName('Damp Sand').id, chance: 0.03 },
   { reactant: getElementByName('Saturated Sand').id, minTemperature: -273, product: getElementByName('Wet Sand').id, chance: 0.0005 },
   { reactant: getElementByName('Saturated Sand').id, minTemperature: 60, product: getElementByName('Wet Sand').id, chance: 0.03 },
+  // Gasoline is volatile: it slowly gives off a flammable vapor even at mild
+  // temperatures (one-way, like the acid concentration steps).
+  { reactant: getElementByName('Gasoline').id, minTemperature: 35, product: getElementByName('Gasoline Vapor').id, chance: 0.01 },
 ];
 
 /** Finds the threshold reaction(s) where the given element is the reactant. */
