@@ -79,3 +79,23 @@ describe('wax melt chain', () => {
     expect(temperatureAndElementFromEnthalpy(molten, cold).elementId).toBe(wax);
   });
 });
+
+describe('iron melt chain', () => {
+  it('Iron melts to Molten Iron at a boundary above Lava temperature, and resolidifies when cooled', () => {
+    const iron = getElementByName('Iron').id;
+    const molten = getElementByName('Molten Iron').id;
+    const t = PHASE_TRANSITIONS.find((tr) => tr.lowElementId === iron);
+    expect(t).toBeDefined();
+    expect(t!.highElementId).toBe(molten);
+    expect(t!.latentHeat).toBeGreaterThan(0);
+    // Lava (800C) must not be able to drive iron to its melt point.
+    expect(t!.boundaryTemp).toBeGreaterThan(getElementByName('Lava').defaultTemp);
+
+    const chain = getChain(iron)!;
+    expect(chain.segments.map((s) => s.elementId)).toEqual([iron, molten]);
+    const hot = enthalpyForTemperature(1650, molten);
+    expect(temperatureAndElementFromEnthalpy(iron, hot).elementId).toBe(molten);
+    const cold = enthalpyForTemperature(20, iron);
+    expect(temperatureAndElementFromEnthalpy(molten, cold).elementId).toBe(iron);
+  });
+});

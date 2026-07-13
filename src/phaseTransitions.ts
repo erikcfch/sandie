@@ -19,6 +19,7 @@ export const PHASE_TRANSITIONS: readonly PhaseTransition[] = [
   { lowElementId: getElementByName('Water').id, highElementId: getElementByName('Steam').id, boundaryTemp: 100, latentHeat: 540 },
   { lowElementId: getElementByName('Stone').id, highElementId: getElementByName('Lava').id, boundaryTemp: 700, latentHeat: 200 },
   { lowElementId: getElementByName('Wax').id, highElementId: getElementByName('Molten Wax').id, boundaryTemp: 60, latentHeat: 40 },
+  { lowElementId: getElementByName('Iron').id, highElementId: getElementByName('Molten Iron').id, boundaryTemp: 1500, latentHeat: 250 },
 ];
 
 export interface ChainSegment {
