@@ -74,6 +74,38 @@ describe('CONTACT_REACTIONS', () => {
   });
 });
 
+describe('metal reactions (3d-2)', () => {
+  const IRON = getElementByName('Iron').id;
+  const RUST = getElementByName('Rust').id;
+  const WATER_ID = getElementByName('Water').id;
+  const ALUMINIUM = getElementByName('Aluminium').id;
+  const MOLTEN_IRON = getElementByName('Molten Iron').id;
+
+  it('rusts Iron in contact with Water, slowly, at any temperature', () => {
+    const r = CONTACT_REACTIONS.find((x) => x.reactant === IRON && x.catalystNeighbor === WATER_ID);
+    expect(r).toBeDefined();
+    expect(r!.product).toBe(RUST);
+    expect(r!.minTemperature).toBeUndefined(); // any temperature
+    expect(r!.chance).toBeLessThan(0.01);       // slow
+  });
+
+  it('thermite: hot Rust next to Aluminium becomes Molten Iron with a large exothermic kick', () => {
+    const r = CONTACT_REACTIONS.find((x) => x.reactant === RUST && x.catalystNeighbor === ALUMINIUM);
+    expect(r).toBeDefined();
+    expect(r!.product).toBe(MOLTEN_IRON);
+    expect(r!.minTemperature).toBe(300);
+    // Must clear the Iron<->Molten Iron plateau start (675) from the 300C gate
+    // carry-over (0.45*300=135) so the product does not resolidify next tick.
+    expect(135 + r!.enthalpyDelta).toBeGreaterThan(675);
+  });
+
+  it('treats Aluminium as a catalyst only (not itself a reactant)', () => {
+    expect(getReactionsFor(ALUMINIUM)).toHaveLength(0);
+    expect(getReactionsFor(IRON)).toHaveLength(1); // rusting
+    expect(getReactionsFor(RUST)).toHaveLength(1); // thermite
+  });
+});
+
 describe('getReactionsFor', () => {
   it('returns the reactions where the given element is the reactant', () => {
     const reactions = getReactionsFor(LAVA);

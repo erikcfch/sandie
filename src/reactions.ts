@@ -92,6 +92,29 @@ export const CONTACT_REACTIONS: readonly ContactReaction[] = [
     enthalpyDelta: 60,
     minTemperature: 80,
   },
+  // Iron slowly rusts wherever it touches Water (Fe + O2/H2O -> Fe2O3): any
+  // temperature, very low per-tick chance, no thermal kick.
+  {
+    reactant: getElementByName('Iron').id,
+    catalystNeighbor: getElementByName('Water').id,
+    product: getElementByName('Rust').id,
+    chance: 0.002,
+    enthalpyDelta: 0,
+  },
+  // Thermite: hot rust (Fe2O3) reduced by adjacent aluminium releases intense
+  // heat and molten iron (2Al + Fe2O3 -> 2Fe + Al2O3). Aluminium is modelled as
+  // the catalyst (a simplification - real thermite consumes it). The large
+  // enthalpyDelta pushes the Molten Iron product past its 675 plateau start (from
+  // the 300C gate's 135 carry-over) to ~1756C, so it stays molten and conducts
+  // heat into neighbouring rust to sustain the reaction.
+  {
+    reactant: getElementByName('Rust').id,
+    catalystNeighbor: getElementByName('Aluminium').id,
+    product: getElementByName('Molten Iron').id,
+    chance: 0.08,
+    enthalpyDelta: 1000,
+    minTemperature: 300,
+  },
 ];
 
 /** Finds the reactions where the given element is the reactant (not merely a catalyst). */
