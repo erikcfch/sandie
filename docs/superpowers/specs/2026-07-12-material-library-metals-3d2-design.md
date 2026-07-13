@@ -1,9 +1,36 @@
 # Material Library: Metals — Phase 3d-2 Design Spec
 
 **Date:** 2026-07-12
-**Status:** Approved shape; ready for implementation plan
+**Status:** ✅ Built + GPU-verified on branch `material-metals` (see as-built addendum)
 **Branch:** `material-metals` (off `master`)
 **Parent:** Phase 3 program — `docs/superpowers/specs/2026-07-10-material-library-phase3-design.md` (3d)
+
+## As-built addendum (in-browser verification, 2026-07-13)
+
+The four metals, the Iron↔Molten Iron melt chain, iron-rusting and the electricity
+tie all verified in headed Chrome (WebGPU): correct render, metals conduct like
+Copper (short wire — the 3c reachability only spans ~100 cells), no grid wipe, no
+console errors. Two findings changed the plan's "zero shader edits" scope:
+
+1. **Dawn/WGSL codegen bug — the one shader edit.** Molten Iron is the first
+   PHASE-CHAINED element ever used as a contact-reaction product. Assigning a
+   chained product to `result.elementId` from *inside* the nested reaction loop in
+   `simulate.wgsl heat()` silently miscompiled under Dawn — the grid write no-op'd,
+   so thermite never fired (while every prior reaction, all with chainless products,
+   worked). Root-caused by shader instrumentation; **fixed by hoisting the product
+   assignment out of the loop** (contact + threshold loops both). Same codegen-bug
+   family the codebase already dodges with the `fluidityAt` proxy (simulate.wgsl
+   ~371). Cross-checked: existing reactions (Copper+Acid) and phase transitions
+   (Ice→Water) still fire. Verified: thermite now flares to molten iron.
+
+2. **Thermite `minTemperature` 300 → 160 (tuning).** In-browser, lava cools to
+   stone in ~2 s, so it can't sustain-heat the aluminium-adjacent rust near 300;
+   160 is reachable where lava touches the mix. 160 stays above `MAX_AMBIENT` (150)
+   so a hot source is still required. `chance` also raised 0.08 → 0.15 so the
+   cascade builds before the fresh molten iron drips away. Ignition is
+   heat-delivery-limited (a well-mixed rust+aluminium pile with lava in good
+   contact flares; a thin/sparse mix only smoulders) — the same character as coal
+   (3d-1) and TNT (3b).
 
 ## Motivation
 

@@ -301,3 +301,40 @@ test('fuels: oil floats + burns, coal chars to ash — no errors', async ({ page
   expect(pageErrors, `page errors: ${pageErrors.join('; ')}`).toEqual([]);
   expect(consoleErrors, `console errors: ${consoleErrors.join('; ')}`).toEqual([]);
 });
+
+test('metals: a battery-iron-ground circuit and a thermite flare — no errors', async ({ page }) => {
+  const consoleErrors: string[] = [];
+  page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
+  const pageErrors: string[] = [];
+  page.on('pageerror', (e) => pageErrors.push(e.message));
+
+  await page.goto('/');
+  const canvas = page.locator('canvas#grid');
+  const unsupported = page.locator('.unsupported');
+  await expect(canvas.or(unsupported)).toBeVisible();
+  if (!(await canvas.isVisible())) test.skip();
+
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('no canvas box');
+  const at = (fx: number, fy: number) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy });
+  // Iron/Aluminium carry a formula on their button -> substring (non-exact) match.
+  const stroke = async (name: string, fx0: number, fx1: number, fy: number, exact = true) => {
+    await page.getByRole('button', { name, exact }).first().click();
+    const a = at(fx0, fy); await page.mouse.move(a.x, a.y); await page.mouse.down();
+    const b = at(fx1, fy); await page.mouse.move(b.x, b.y); await page.mouse.up();
+  };
+
+  // Circuit: Battery -> Iron wire -> Ground (metal conducts like Copper).
+  await stroke('Iron', 0.38, 0.56, 0.4, false);
+  await stroke('Battery', 0.35, 0.38, 0.4);
+  await stroke('Ground', 0.56, 0.59, 0.4);
+
+  // Thermite: rust + aluminium, ignited by lava, flares to molten iron.
+  await stroke('Rust', 0.40, 0.60, 0.7, false);
+  await stroke('Aluminium', 0.40, 0.60, 0.72, false);
+  await stroke('Lava', 0.44, 0.56, 0.66);
+  await page.waitForTimeout(3000);
+
+  expect(pageErrors, `page errors: ${pageErrors.join('; ')}`).toEqual([]);
+  expect(consoleErrors, `console errors: ${consoleErrors.join('; ')}`).toEqual([]);
+});

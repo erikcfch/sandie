@@ -527,3 +527,57 @@ describe('fuels (3d-1)', () => {
     expect(r!.minTemperature).toBeLessThan(byName('Water').boilingPoint ?? 100);
   });
 });
+
+describe('metals (3d-2)', () => {
+  const byName = (n: string) => getElementByName(n);
+  it('adds Iron, Molten Iron, Gold, Aluminium at ids 38-41', () => {
+    expect([
+      byName('Iron').id, byName('Molten Iron').id, byName('Gold').id, byName('Aluminium').id,
+    ]).toEqual([38, 39, 40, 41]);
+  });
+  it('makes the solid metals conductive chem metals with a formula', () => {
+    for (const n of ['Iron', 'Gold', 'Aluminium']) {
+      const e = byName(n);
+      expect(e.family).toBe('chem');
+      expect(e.formula).toBeTruthy();
+      expect(e.metallic).toBe('metal');
+      expect(e.origin).toBe('inorganic');
+      expect(e.conductive).toBe(true);
+      expect(e.form).toBe('static');
+    }
+  });
+  it('makes Molten Iron a metal liquid with no formula, not flagged conductive', () => {
+    const m = byName('Molten Iron');
+    expect(m.form).toBe('liquid');
+    expect(m.metallic).toBe('metal');
+    expect(m.formula).toBeUndefined();
+    expect(m.conductive).toBeFalsy();
+    expect(m.viscosityRefLog10).toBeGreaterThan(0); // has a viscosity curve (it flows)
+  });
+  it('gives Gold the highest thermalConductivity of any conductive element', () => {
+    const conductors = ELEMENTS.filter((e) => e.conductive);
+    const maxCond = Math.max(...conductors.map((e) => e.thermalConductivity));
+    expect(byName('Gold').thermalConductivity).toBe(maxCond);
+    expect(byName('Gold').thermalConductivity).toBeGreaterThan(byName('Copper').thermalConductivity);
+  });
+  it('records real reference densities (gold densest, aluminium light, iron heavy)', () => {
+    expect(byName('Gold').realDensity).toBeGreaterThan(byName('Iron').realDensity);
+    expect(byName('Iron').realDensity).toBeGreaterThan(byName('Aluminium').realDensity);
+    expect(byName('Gold').realDensity).toBe(Math.max(...ELEMENTS.map((e) => e.realDensity)));
+  });
+  it('keeps solid metals as static barriers (denser than every movable in sim terms)', () => {
+    const sim = (n: string) => simDensity(byName(n).form, byName(n).realDensity);
+    for (const s of ['Iron', 'Gold', 'Aluminium']) {
+      for (const m of ['Sand', 'Water', 'Lava', 'Rust', 'Molten Iron']) {
+        expect(sim(s)).toBeGreaterThan(sim(m));
+      }
+    }
+  });
+  it('packs the metal flag (bit 7) and conductive flag (bit 5) for the solid metals', () => {
+    const flags = materialFlags();
+    for (const n of ['Iron', 'Gold', 'Aluminium']) {
+      expect((flags[byName(n).id] >> 7) & 1).toBe(1); // metal
+      expect((flags[byName(n).id] >> 5) & 1).toBe(1); // conductive
+    }
+  });
+});
