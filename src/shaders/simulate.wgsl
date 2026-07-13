@@ -798,6 +798,15 @@ fn heat(@builtin(global_invocation_id) gid: vec3<u32>) {
     // catalyst -> product, e.g. Lava+Water->Obsidian or
     // Copper+Acid->Copper Sulfate. First matching-and-triggered reaction
     // wins (a cell can't be transformed twice in one tick).
+    // Record a fired reaction's product in locals and apply it AFTER the loop.
+    // Assigning result.elementId to a phase-chained product from inside this
+    // nested loop miscompiles under Dawn (the write silently no-ops, so a
+    // reaction producing e.g. Molten Iron never fires); hoisting the assignment
+    // out of the loop dodges the codegen bug. See src/reactions.ts. Init from
+    // result.elementId (which may already hold a phase-transition product from
+    // thermalFromEnthalpy above) so a non-reacting cell keeps its melt/freeze.
+    var reactedProduct = result.elementId;
+    var reactedEnthalpy = newEnthalpy;
     for (var i = 0u; i < params.reactionCount; i = i + 1u) {
       let row0 = reactions[i * 2u];
       if (here.elementId != u32(row0.x)) {
@@ -822,12 +831,13 @@ fn heat(@builtin(global_invocation_id) gid: vec3<u32>) {
       // (and correlate with) the same roll on a given cell/frame.
       let roll = f32(hash(u32(x), u32(y), params.frame + i * 7919u) & 0xffffu) / 65536.0;
       if (roll < row0.w) {
-        let product = u32(row0.z);
-        result.elementId = product;
-        newEnthalpy = enthalpyForNewElement(result.temperature, product) + row1.x;
+        reactedProduct = u32(row0.z);
+        reactedEnthalpy = enthalpyForNewElement(result.temperature, reactedProduct) + row1.x;
         break;
       }
     }
+    result.elementId = reactedProduct;
+    newEnthalpy = reactedEnthalpy;
 
     // Data-driven threshold reactions (src/thresholdReactions.ts): a
     // temperature-only, one-way substance change with no catalyst neighbor
@@ -837,6 +847,11 @@ fn heat(@builtin(global_invocation_id) gid: vec3<u32>) {
     // contact reaction already fired this tick (result.elementId is still
     // unchanged), so a cell can't be transformed twice in one tick.
     if (result.elementId == here.elementId) {
+      // Same hoist-out-of-loop as the contact-reaction loop above: assigning a
+      // phase-chained product to result.elementId from inside the loop
+      // miscompiles under Dawn (the write no-ops).
+      var tProduct = here.elementId;
+      var tEnthalpy = newEnthalpy;
       for (var k = 0u; k < params.thresholdReactionCount; k = k + 1u) {
         let trow = thresholdReactions[k];
         if (here.elementId != u32(trow.x)) {
@@ -849,12 +864,13 @@ fn heat(@builtin(global_invocation_id) gid: vec3<u32>) {
         // the two engines' rolls don't correlate.
         let roll = f32(hash(u32(x), u32(y), params.frame + k * 104729u) & 0xffffu) / 65536.0;
         if (roll < trow.w) {
-          let product = u32(trow.z);
-          result.elementId = product;
-          newEnthalpy = enthalpyForNewElement(result.temperature, product);
+          tProduct = u32(trow.z);
+          tEnthalpy = enthalpyForNewElement(result.temperature, tProduct);
           break;
         }
       }
+      result.elementId = tProduct;
+      newEnthalpy = tEnthalpy;
     }
   }
 

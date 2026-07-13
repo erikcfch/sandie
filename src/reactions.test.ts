@@ -93,10 +93,10 @@ describe('metal reactions (3d-2)', () => {
     const r = CONTACT_REACTIONS.find((x) => x.reactant === RUST && x.catalystNeighbor === ALUMINIUM);
     expect(r).toBeDefined();
     expect(r!.product).toBe(MOLTEN_IRON);
-    expect(r!.minTemperature).toBe(300);
-    // Must clear the Iron<->Molten Iron plateau start (675) from the 300C gate
-    // carry-over (0.45*300=135) so the product does not resolidify next tick.
-    expect(135 + r!.enthalpyDelta).toBeGreaterThan(675);
+    expect(r!.minTemperature).toBe(160);
+    // Must clear the Iron<->Molten Iron plateau start (675) from the 160C gate
+    // carry-over (0.45*160=72) so the product does not resolidify next tick.
+    expect(72 + r!.enthalpyDelta).toBeGreaterThan(675);
   });
 
   it('treats Aluminium as a catalyst only (not itself a reactant)', () => {

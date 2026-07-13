@@ -104,16 +104,28 @@ export const CONTACT_REACTIONS: readonly ContactReaction[] = [
   // Thermite: hot rust (Fe2O3) reduced by adjacent aluminium releases intense
   // heat and molten iron (2Al + Fe2O3 -> 2Fe + Al2O3). Aluminium is modelled as
   // the catalyst (a simplification - real thermite consumes it). The large
-  // enthalpyDelta pushes the Molten Iron product past its 675 plateau start (from
-  // the 300C gate's 135 carry-over) to ~1756C, so it stays molten and conducts
-  // heat into neighbouring rust to sustain the reaction.
+  // enthalpyDelta pushes the Molten Iron product past its 675 plateau start (at
+  // the 160C gate the carry-over is 0.45*160=72) to ~1670C, so it stays molten
+  // and conducts heat into neighbouring rust to sustain the reaction.
+  // Molten Iron is the first PHASE-CHAINED contact-reaction product; assigning a
+  // chained product to result.elementId from inside the reaction loop tripped a
+  // Dawn/WGSL codegen bug (the grid write silently no-op'd) until the assignment
+  // was hoisted out of the loop in simulate.wgsl. minTemperature is 160 (not the
+  // ~300 first specced): in-browser, lava cools to stone in ~2s, so it can't
+  // sustain-heat the aluminium-adjacent rust anywhere near 300; 160 is reached
+  // where lava touches the mix, so a rust+aluminium MIX ignited by lava/fire
+  // flares to molten iron. A well-mixed pile with lava in good contact flares
+  // hardest; a thin/sparse mix only smoulders - the same heat-delivery character
+  // as coal (3d-1) and TNT (3b). 160 stays above MAX_AMBIENT (150) so a hot
+  // source is required. chance 0.15 (higher than the acid/rust rows) so the
+  // cascade builds before the fresh molten iron drips away.
   {
     reactant: getElementByName('Rust').id,
     catalystNeighbor: getElementByName('Aluminium').id,
     product: getElementByName('Molten Iron').id,
-    chance: 0.08,
+    chance: 0.15,
     enthalpyDelta: 1000,
-    minTemperature: 300,
+    minTemperature: 160,
   },
 ];
 
