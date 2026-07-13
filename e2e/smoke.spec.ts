@@ -265,3 +265,39 @@ test('electricity: a Battery-Copper-Ground circuit drives current without errors
   expect(pageErrors, `page errors: ${pageErrors.join('; ')}`).toEqual([]);
   expect(consoleErrors, `console errors: ${consoleErrors.join('; ')}`).toEqual([]);
 });
+
+test('fuels: oil floats + burns, coal chars to ash — no errors', async ({ page }) => {
+  const consoleErrors: string[] = [];
+  page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
+  const pageErrors: string[] = [];
+  page.on('pageerror', (e) => pageErrors.push(e.message));
+
+  await page.goto('/');
+  const canvas = page.locator('canvas#grid');
+  const unsupported = page.locator('.unsupported');
+  await expect(canvas.or(unsupported)).toBeVisible();
+  if (!(await canvas.isVisible())) test.skip();
+
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('no canvas box');
+  const at = (fx: number, fy: number) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy });
+  const stroke = async (name: string, fx0: number, fx1: number, fy: number) => {
+    await page.getByRole('button', { name, exact: true }).click();
+    const a = at(fx0, fy); await page.mouse.move(a.x, a.y); await page.mouse.down();
+    const b = at(fx1, fy); await page.mouse.move(b.x, b.y); await page.mouse.up();
+  };
+
+  // Oil on water (floats), a coal pile, gasoline, and Lava to ignite — exercises
+  // the new fuels' combustion, floating (3a density), and Coal->Ash.
+  await stroke('Stone', 0.15, 0.45, 0.72);
+  await stroke('Water', 0.18, 0.42, 0.66);
+  await stroke('Oil', 0.18, 0.42, 0.62);
+  await stroke('Gasoline', 0.50, 0.60, 0.6);
+  await stroke('Coal', 0.65, 0.80, 0.68);
+  await stroke('Lava', 0.20, 0.30, 0.58);
+  await stroke('Lava', 0.68, 0.76, 0.63);
+  await page.waitForTimeout(3000);
+
+  expect(pageErrors, `page errors: ${pageErrors.join('; ')}`).toEqual([]);
+  expect(consoleErrors, `console errors: ${consoleErrors.join('; ')}`).toEqual([]);
+});

@@ -1,9 +1,29 @@
 # Material Library: Fuels — Phase 3d-1 Design Spec
 
 **Date:** 2026-07-12
-**Status:** Approved shape; ready for implementation plan
+**Status:** ✅ DONE — implemented + GPU-verified on branch `material-fuels`
 **Branch:** `material-fuels` (off `master`)
 **Parent:** Phase 3 program — `docs/superpowers/specs/2026-07-10-material-library-phase3-design.md` (3d)
+
+## As built (2026-07-12)
+
+Pure data — 7 new `ElementDef` rows (Oil 31, Gasoline 32, Gasoline Vapor 33,
+Alcohol 34, Coal 35, Ash 36, Methane 37) + one `THRESHOLD_REACTIONS` row
+(Gasoline→Gasoline Vapor, minTemp 35). **Zero shader edits.** Verified in headed
+Chrome: **Oil floats on Water** (real density 0.92 < 1.0 via 3a) as a slick on a
+water pool and **burns** (smoke rises when lit); **Coal chars to a grey Ash** layer
+under sustained heat; gases (Methane / Gasoline Vapor) rise; no grid wipe, no
+console errors. 182 unit tests, typecheck, build green.
+
+**Coal→Ash outcome (the flagged tune point):** kept `Coal.burnProduct = Ash`
+(ember model) — **no tune needed**. Coal converts to Ash where heated but does NOT
+self-propagate a burn front. That is NOT a coal defect: combustion in this engine
+is **non-exothermic** (the flammable rule carries a cell's temperature to its
+`burnProduct` but adds no heat), so *every* fuel — Wood included — ignites where a
+heat source touches it rather than spreading on its own. The fallback (`burnProduct
+= Fire`) was NOT needed; Ash is delivered. **Follow-up (out of scope here):** a
+self-spreading fire would need a separate exothermic-combustion mechanism (a small
+`enthalpyDelta` on ignition) — a future engine enhancement, not a data change.
 
 ## Motivation
 
