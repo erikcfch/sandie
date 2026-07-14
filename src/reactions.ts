@@ -127,6 +127,30 @@ export const CONTACT_REACTIONS: readonly ContactReaction[] = [
     enthalpyDelta: 1000,
     minTemperature: 160,
   },
+  // Sodium reacts violently at a water boundary. Split into two one-cell
+  // products so Sodium flares while adjacent Water releases Hydrogen gas.
+  {
+    reactant: getElementByName('Sodium').id,
+    catalystNeighbor: getElementByName('Water').id,
+    product: getElementByName('Fire').id,
+    chance: 0.5,
+    enthalpyDelta: 600,
+  },
+  {
+    reactant: getElementByName('Water').id,
+    catalystNeighbor: getElementByName('Sodium').id,
+    product: getElementByName('Hydrogen').id,
+    chance: 0.3,
+    enthalpyDelta: 0,
+  },
+  // Salt dissolves into conductive brine wherever it touches Water.
+  {
+    reactant: getElementByName('Salt').id,
+    catalystNeighbor: getElementByName('Water').id,
+    product: getElementByName('Salt Water').id,
+    chance: 0.1,
+    enthalpyDelta: 0,
+  },
 ];
 
 /** Finds the reactions where the given element is the reactant (not merely a catalyst). */

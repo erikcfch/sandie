@@ -11,9 +11,10 @@ The final 3d sub-batch and the last of Phase 3. Four reactive materials that tie
 every Phase-3 mechanism together: an explosive (→ 3b blast), a conductive liquid
 (→ 3c electricity), and violent contact/threshold chemistry. **Pure data** — new
 `ElementDef` rows + reaction-table rows + one existing-element tweak (Hydrogen).
-**Zero shader edits**: every product is chainless (Fire/Hydrogen/Steam/Glass/Salt
-Water — none is in a phase chain), so the generic blast / electricity / contact /
-threshold engines already handle everything. Builds on 3d-2 metals (merged).
+**Zero shader edits**: every product used here stays compatible with the existing
+blast / electricity / contact / threshold engines. Implementation review found Steam is
+part of the Water phase chain in this repo, so Hydrogen burns to chainless Fire
+instead of Steam to preserve the blast pass invariant. Builds on 3d-2 metals (merged).
 
 ## Roster (new `ElementDef` rows, ids from 42)
 
@@ -48,17 +49,16 @@ threshold engines already handle everything. Builds on 3d-2 metals (merged).
 ## Existing-element tweak: Hydrogen (id 14) becomes flammable
 
 For the "H₂ builds up and flashes" chain, Hydrogen gains `flammable:true`,
-`ignitionTemp:100` (ignites easily), `burnProduct:Steam` (2H₂+O₂→2H₂O vapour),
-`burnRate:0.9` (fast). This is chemically correct (H₂ is flammable) and reuses the
-generic flammable rule. **Verified isolated:** Hydrogen (id 14) appears only in its
-`elements.ts` definition — it is NOT a product of any CONTACT/THRESHOLD/corrosion
-reaction today (grepped `src/`), so the tweak only affects painted H₂ and the new
-Sodium-produced H₂. The flammable-enumeration test at `elements.test.ts:318` must
-grow (it maps `ELEMENTS.filter(flammable)` in id order) to
+`ignitionTemp:100` (ignites easily), `burnProduct:Fire`, `burnRate:0.9` (fast).
+Hydrogen is flammable, and Fire is the chainless visual flash product used to keep
+the existing blast/flammable path shader-free. **Verified isolated before this batch:**
+Hydrogen (id 14) appeared only in its `elements.ts` definition; this batch adds the
+Sodium-produced H₂ path.
+The flammable-enumeration test at `elements.test.ts:318` must grow (it maps `ELEMENTS.filter(flammable)` in id order) to
 `['Wood', 'Hydrogen', 'TNT', 'Oil', 'Gasoline', 'Gasoline Vapor', 'Alcohol', 'Coal', 'Methane', 'Gunpowder']`
 — Hydrogen after Wood (id 14) and Gunpowder last (id 42).
 
-## Reactions (all data rows, chainless products)
+## Reactions (all data rows, shader-compatible products)
 
 - **Sodium + Water → Fire + Hydrogen** (two `CONTACT_REACTIONS` rows, no
   `minTemperature` — reacts at room temp):
@@ -89,7 +89,7 @@ loops.
   (floats) /not-conductive; Glass inert static; Salt Water `conductive` liquid /
   ρ>Water (sinks below fresh water); the two Sodium+Water rows, the Sand→Glass
   threshold row, and the Salt+Water→Salt Water row exist with correct
-  reactant/catalyst/product; Hydrogen now `flammable` → Steam; flammable-enumeration
+  reactant/catalyst/product; Hydrogen now `flammable` → Fire; flammable-enumeration
   test updated (adds Hydrogen, Gunpowder).
 - **In-browser (headed Chrome) — authoritative:** drop Sodium on a water pool →
   it floats and flares (fire + rising hydrogen that flashes); pile Gunpowder and

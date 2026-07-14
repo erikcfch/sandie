@@ -309,14 +309,14 @@ describe('material taxonomy', () => {
 });
 
 describe('capabilities and reference values', () => {
-  it('Wood and TNT are flammable, igniting to Fire', () => {
+  it('flammable materials ignite to chainless burn products', () => {
     const wood = getElementByName('Wood');
     expect(wood.flammable).toBe(true);
     expect(wood.ignitionTemp).toBe(300);
     expect(wood.burnProduct).toBe(getElementByName('Fire').id);
     expect(wood.burnRate).toBe(1);
     expect(ELEMENTS.filter((e) => e.flammable).map((e) => e.name)).toEqual(
-      ['Wood', 'TNT', 'Oil', 'Gasoline', 'Gasoline Vapor', 'Alcohol', 'Coal', 'Methane'],
+      ['Wood', 'Hydrogen', 'TNT', 'Oil', 'Gasoline', 'Gasoline Vapor', 'Alcohol', 'Coal', 'Methane', 'Gunpowder'],
     );
   });
   it('acids are corrosive and copper is a conductive metal', () => {
@@ -579,5 +579,76 @@ describe('metals (3d-2)', () => {
       expect((flags[byName(n).id] >> 7) & 1).toBe(1); // metal
       expect((flags[byName(n).id] >> 5) & 1).toBe(1); // conductive
     }
+  });
+});
+
+describe('reactive materials (3d-3)', () => {
+  const byName = (n: string) => getElementByName(n);
+
+  it('adds Gunpowder, Sodium, Glass, and Salt Water at ids 42-45', () => {
+    expect([
+      byName('Gunpowder').id, byName('Sodium').id, byName('Glass').id, byName('Salt Water').id,
+    ]).toEqual([42, 43, 44, 45]);
+  });
+
+  it('makes Gunpowder a sensitive powder explosive weaker than TNT', () => {
+    const gunpowder = byName('Gunpowder');
+    const tnt = byName('TNT');
+    expect(gunpowder.form).toBe('powder');
+    expect(gunpowder.flammable).toBe(true);
+    expect(gunpowder.explosive).toBe(true);
+    expect(gunpowder.burnProduct).toBe(byName('Fire').id);
+    expect(gunpowder.detonationTemp).toBeLessThan(tnt.detonationTemp!);
+    expect(gunpowder.ignitionTemp).toBeLessThan(tnt.ignitionTemp!);
+    expect(gunpowder.blastStrength).toBeLessThan(tnt.blastStrength!);
+  });
+
+  it('makes Hydrogen flammable with a chainless Fire product', () => {
+    const hydrogen = byName('Hydrogen');
+    expect(hydrogen.flammable).toBe(true);
+    expect(hydrogen.ignitionTemp).toBe(100);
+    expect(hydrogen.burnProduct).toBe(byName('Fire').id);
+    expect(hydrogen.burnRate).toBe(0.9);
+    expect(chainCountOf(hydrogen.burnProduct!)).toBe(0);
+  });
+
+  it('makes Sodium a floating powder metal but not a conductor', () => {
+    const sodium = byName('Sodium');
+    expect(sodium.family).toBe('chem');
+    expect(sodium.formula).toBe('Na');
+    expect(sodium.form).toBe('powder');
+    expect(sodium.metallic).toBe('metal');
+    expect(sodium.conductive).toBeFalsy();
+    expect(sodium.realDensity).toBeLessThan(byName('Water').realDensity);
+    expect(sim('Sodium')).toBeLessThan(sim('Water'));
+  });
+
+  it('makes Glass an inert static physical solid', () => {
+    const glass = byName('Glass');
+    expect(glass.family).toBe('physical');
+    expect(glass.form).toBe('static');
+    expect(glass.phase).toBe('solid');
+    expect(glass.origin).toBe('inorganic');
+    expect(glass.flammable).toBeFalsy();
+    expect(glass.conductive).toBeFalsy();
+    expect(sim('Glass')).toBeGreaterThan(sim('Lava'));
+  });
+
+  it('makes Salt Water a conductive liquid solution denser than fresh water', () => {
+    const brine = byName('Salt Water');
+    expect(brine.family).toBe('chem');
+    expect(brine.formula).toBeUndefined();
+    expect(brine.form).toBe('liquid');
+    expect(brine.conductive).toBe(true);
+    expect(brine.viscosityRefLog10).toBe(0);
+    expect(brine.realDensity).toBeGreaterThan(byName('Water').realDensity);
+    expect(sim('Salt Water')).toBeGreaterThan(sim('Water'));
+  });
+
+  it('packs Sodium as metal and Salt Water as conductive', () => {
+    const flags = materialFlags();
+    expect((flags[byName('Sodium').id] >> 7) & 1).toBe(1);
+    expect((flags[byName('Sodium').id] >> 5) & 1).toBe(0);
+    expect((flags[byName('Salt Water').id] >> 5) & 1).toBe(1);
   });
 });

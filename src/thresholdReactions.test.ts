@@ -11,6 +11,8 @@ const VERY_DILUTE = getElementByName('Sulfuric Acid (Very Dilute)').id;
 const DILUTE = getElementByName('Sulfuric Acid (Dilute)').id;
 const CONCENTRATED = getElementByName('Sulfuric Acid (Concentrated)').id;
 const FUMING = getElementByName('Sulfuric Acid (Fuming)').id;
+const SAND = getElementByName('Sand').id;
+const GLASS = getElementByName('Glass').id;
 
 describe('THRESHOLD_REACTIONS', () => {
   it('defines Very Dilute becoming Dilute at 100 degrees', () => {
@@ -32,6 +34,13 @@ describe('THRESHOLD_REACTIONS', () => {
     expect(reaction).toBeDefined();
     expect(reaction!.minTemperature).toBe(300);
     expect(reaction!.product).toBe(FUMING);
+  });
+
+  it('defines Sand fusing into Glass under sustained intense heat', () => {
+    const reaction = THRESHOLD_REACTIONS.find((r) => r.reactant === SAND && r.product === GLASS);
+    expect(reaction).toBeDefined();
+    expect(reaction!.minTemperature).toBe(700);
+    expect(reaction!.chance).toBeCloseTo(0.05);
   });
 
   it('gives every reaction a chance strictly between 0 and 1 (stochastic, not instant)', () => {

@@ -13,6 +13,11 @@ const CONCENTRATED = getElementByName('Sulfuric Acid (Concentrated)').id;
 const FUMING = getElementByName('Sulfuric Acid (Fuming)').id;
 const COPPER_SULFATE = getElementByName('Copper Sulfate').id;
 const SULFUR_DIOXIDE = getElementByName('Sulfur Dioxide').id;
+const FIRE = getElementByName('Fire').id;
+const HYDROGEN = getElementByName('Hydrogen').id;
+const SALT = getElementByName('Salt').id;
+const SODIUM = getElementByName('Sodium').id;
+const SALT_WATER = getElementByName('Salt Water').id;
 
 describe('CONTACT_REACTIONS', () => {
   it('defines Lava becoming Obsidian when touching Water, with no temperature gate', () => {
@@ -106,6 +111,33 @@ describe('metal reactions (3d-2)', () => {
   });
 });
 
+describe('reactive contact reactions (3d-3)', () => {
+  it('splits Sodium + Water into Fire and Hydrogen at room temperature', () => {
+    const fire = CONTACT_REACTIONS.find((r) => r.reactant === SODIUM && r.catalystNeighbor === WATER);
+    const hydrogen = CONTACT_REACTIONS.find((r) => r.reactant === WATER && r.catalystNeighbor === SODIUM);
+    expect(fire).toBeDefined();
+    expect(fire!.product).toBe(FIRE);
+    expect(fire!.chance).toBeCloseTo(0.5);
+    expect(fire!.enthalpyDelta).toBe(600);
+    expect(fire!.minTemperature).toBeUndefined();
+    expect(hydrogen).toBeDefined();
+    expect(hydrogen!.product).toBe(HYDROGEN);
+    expect(hydrogen!.chance).toBeCloseTo(0.3);
+    expect(hydrogen!.enthalpyDelta).toBe(0);
+    expect(hydrogen!.minTemperature).toBeUndefined();
+    expect(getReactionsFor(WATER)).toHaveLength(1);
+  });
+
+  it('dissolves Salt into conductive Salt Water where it touches Water', () => {
+    const brine = CONTACT_REACTIONS.find((r) => r.reactant === SALT && r.catalystNeighbor === WATER);
+    expect(brine).toBeDefined();
+    expect(brine!.product).toBe(SALT_WATER);
+    expect(brine!.chance).toBeCloseTo(0.1);
+    expect(brine!.enthalpyDelta).toBe(0);
+    expect(brine!.minTemperature).toBeUndefined();
+  });
+});
+
 describe('getReactionsFor', () => {
   it('returns the reactions where the given element is the reactant', () => {
     const reactions = getReactionsFor(LAVA);
@@ -114,7 +146,7 @@ describe('getReactionsFor', () => {
   });
 
   it('does not return reactions where the element is only a catalyst, not a reactant', () => {
-    expect(getReactionsFor(WATER)).toHaveLength(0);
+    expect(getReactionsFor(getElementByName('Aluminium').id)).toHaveLength(0);
   });
 
   it('returns an empty array for elements with no reactions', () => {
